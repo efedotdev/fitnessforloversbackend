@@ -1,0 +1,27 @@
+# Paketler
+node_modules/
+
+# Derlenmiş çıktı
+dist/
+
+# Ortam değişkenleri ve gizli bilgiler
+.env
+.env.*
+!.env.example
+
+# Yerel SQLite veritabanı
+prisma/*.db
+prisma/*.db-journal
+
+# macOS sistem dosyası
+.DS_Store
+
+# Log dosyaları
+*.log
+logs/
+
+# Test çıktıları
+coverage/
+
+# TypeScript önbelleği
+*.tsbuildinfo

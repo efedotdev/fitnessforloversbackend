@@ -1,0 +1,227 @@
+// FitnessForLovers - Prisma Schema
+// Health data sharing between two users (partners)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum HealthDataType {
+  STEPS
+  HEART_RATE
+  ACTIVE_ENERGY
+  BASAL_ENERGY
+  DISTANCE_WALKING_RUNNING
+  FLIGHTS_CLIMBED
+  EXERCISE_MINUTES
+  STAND_HOURS
+  SLEEP_ANALYSIS
+  WORKOUT
+  BODY_MASS
+  BODY_FAT_PERCENTAGE
+  HEART_RATE_VARIABILITY
+  RESTING_HEART_RATE
+  VO2_MAX
+  BLOOD_PRESSURE_SYSTOLIC
+  BLOOD_PRESSURE_DIASTOLIC
+  BLOOD_GLUCOSE
+  OXYGEN_SATURATION
+  RESPIRATORY_RATE
+  BODY_TEMPERATURE
+  MENSTRUAL_FLOW
+  CUSTOM
+}
+
+enum HealthDataUnit {
+  COUNT
+  BPM
+  KCAL
+  KM
+  METERS
+  MINUTES
+  HOURS
+  PERCENTAGE
+  KG
+  MMHG
+  MG_DL
+  ML_MIN
+  CELSIUS
+  SECONDS
+}
+
+enum PairingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+  EXPIRED
+}
+
+enum SharingScope {
+  ALL
+  ACTIVITY_ONLY
+  HEART_ONLY
+  SLEEP_ONLY
+  WORKOUT_ONLY
+  CUSTOM
+}
+
+enum DevicePlatform {
+  IOS
+  WATCHOS
+  ANDROID
+  WEB
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  appleUserId       String?   @unique // Apple Sign In identifier
+  name              String?
+  avatarUrl         String?
+  role              UserRole  @default(USER)
+  emailVerified     Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
+
+  // Relations
+  healthData        HealthData[]
+  pairingsAsUser1   Pairing[] @relation("User1Pairings")
+  pairingsAsUser2   Pairing[] @relation("User2Pairings")
+  devices           Device[]
+  notifications     Notification[]
+  preferences       UserPreferences?
+
+  @@index([appleUserId])
+  @@index([email])
+}
+
+model UserPreferences {
+  id                    String        @id @default(cuid())
+  userId                String        @unique
+  sharingScope          SharingScope  @default(ACTIVITY_ONLY)
+  customDataTypes       HealthDataType[]
+  notifyOnNewData       Boolean       @default(true)
+  notifyOnPartnerActive Boolean       @default(true)
+  weeklyDigest          Boolean       @default(false)
+  timezone              String        @default("UTC")
+  language              String        @default("tr")
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id            String         @id @default(cuid())
+  userId        String
+  deviceId      String         // Apple device identifier
+  platform      DevicePlatform @default(IOS)
+  model         String?
+  osVersion     String?
+  appVersion    String?
+  pushToken     String?        // For push notifications
+  isActive      Boolean        @default(true)
+  lastSyncAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@index([pushToken])
+}
+
+model Pairing {
+  id            String         @id @default(cuid())
+  user1Id       String         // Inviter
+  user2Id       String         // Invitee
+  status        PairingStatus  @default(PENDING)
+  sharingScope  SharingScope   @default(ACTIVITY_ONLY)
+  customTypes   HealthDataType[]
+  invitedAt     DateTime       @default(now())
+  acceptedAt    DateTime?
+  rejectedAt    DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user1 User @relation("User1Pairings", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2 User @relation("User2Pairings", fields: [user2Id], references: [id], onDelete: Cascade)
+
+  @@unique([user1Id, user2Id])
+  @@index([user1Id, status])
+  @@index([user2Id, status])
+  @@index([status, expiresAt])
+}
+
+model HealthData {
+  id              String         @id @default(cuid())
+  userId          String
+  type            HealthDataType
+  unit            HealthDataUnit
+  value           Float
+  startDate       DateTime
+  endDate         DateTime
+  sourceName      String?        // "HealthKit", "Apple Watch", etc.
+  sourceVersion   String?
+  deviceId        String?        // Device that recorded this
+  metadata        Json?          // Additional data (workout type, sleep stages, etc.)
+  syncedAt        DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, startDate])
+  @@index([userId, syncedAt])
+  @@index([type, startDate])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  data      Json?
+  read      Boolean  @default(false)
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+}
+
+model SyncLog {
+  id            String   @id @default(cuid())
+  userId        String
+  deviceId      String?
+  recordsCount  Int      @default(0)
+  status        String   // SUCCESS, PARTIAL, FAILED
+  errorMessage  String?
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
