@@ -7,13 +7,24 @@ import multipart from '@fastify/multipart';
 import { config } from './config';
 import { logger } from './config/logger';
 import { connectDatabase } from './config/database';
-import { registerRoutes } from './routes';
 import { errorHandler } from './middleware/error-handler';
 import { authMiddleware } from './middleware/auth';
 import {
   serializerCompiler,
   validatorCompiler
 } from "fastify-type-provider-zod";
+
+// ============================================
+// CONTROLLER ROUTE REGISTRATION - .NET: MapControllers()
+// ============================================
+import {
+  registerAuthRoutes,
+  registerUserRoutes,
+  registerPairingRoutes,
+  registerHealthDataRoutes,
+  registerDeviceRoutes,
+  registerNotificationRoutes,
+} from './controllers';
 
 const serverOptions: FastifyServerOptions = {
   logger: logger as any,
@@ -72,8 +83,20 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Register auth middleware as global hook
   app.addHook('onRequest', authMiddleware);
 
-  // Register all routes
-  await registerRoutes(app);
+  // ============================================
+  // REGISTER CONTROLLER ROUTES - 3-Layer Architecture
+  // ============================================
+  // Presentation Layer (Controllers) → Business Logic (Services) → Data Access (Repositories)
+
+  // Public routes (no auth required)
+  registerAuthRoutes(app);
+
+  // Protected routes (auth required via global hook)
+  registerUserRoutes(app);
+  registerPairingRoutes(app);
+  registerHealthDataRoutes(app);
+  registerDeviceRoutes(app);
+  registerNotificationRoutes(app);
 
   // Global error handler
   app.setErrorHandler(errorHandler);
