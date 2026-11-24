@@ -26,9 +26,9 @@ import { HealthDataType, SharingScope } from '@prisma/client';
 export interface IHealthDataService {
   create(userId: string, data: CreateHealthDataRequest): Promise<HealthDataResponse>;
   bulkCreate(userId: string, data: BulkHealthDataRequest): Promise<{ synced: number }>;
-  getMyData(userId: string, query: QueryHealthData): Promise<{ data: HealthDataResponse[]; pagination: any }>;
+  getMyData(userId: string, query: QueryHealthData): Promise<{ data: Array<HealthDataResponse | Record<string, unknown>>; pagination: any }>;
   getDailySummary(userId: string): Promise<DailySummary>;
-  getPartnerData(userId: string, query: PartnerHealthDataQuery): Promise<{ data: HealthDataResponse[]; pagination: any; partner: any }>;
+  getPartnerData(userId: string, query: PartnerHealthDataQuery): Promise<{ data: Array<HealthDataResponse | Record<string, unknown>>; pagination: any; partner: any }>;
   getPartnerSummary(userId: string, partnerId: string): Promise<any>;
   delete(userId: string, healthDataId: string): Promise<{ message: string }>;
 }
@@ -50,31 +50,43 @@ export class HealthDataService implements IHealthDataService {
 
   // Bulk Create (HealthKit Sync) - .NET: async Task<BulkSyncResponse> BulkCreateAsync(string userId, BulkHealthDataRequest data)
   async bulkCreate(userId: string, data: BulkHealthDataRequest): Promise<{ synced: number }> {
+    const startedAt = new Date();
     const records = data.data.map(d => ({
-      user: { connect: { id: userId } },
+      userId,
       ...d,
       startDate: new Date(d.startDate),
       endDate: new Date(d.endDate),
     }));
 
-    const result = await healthDataRepository.transaction(async (tx: any) => {
-      const created = await tx.healthData.createMany({
-        data: records,
-        skipDuplicates: true,
-      });
+    let result: { count: number };
+    try {
+      result = await healthDataRepository.transaction(async (tx: any) => {
+        const created = await tx.healthData.createMany({
+          data: records,
+          skipDuplicates: true,
+        });
 
-      await tx.syncLog.create({
-        data: {
-          userId,
-          recordsCount: created.count,
-          status: 'SUCCESS',
-          startedAt: new Date(),
-          completedAt: new Date(),
-        },
-      });
+        await tx.syncLog.create({
+          data: {
+            userId,
+            recordsCount: created.count,
+            status: 'SUCCESS',
+            startedAt,
+            completedAt: new Date(),
+          },
+        });
 
-      return created;
-    });
+        return created;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown sync error';
+      try {
+        await healthDataRepository.createFailedSyncLog(userId, startedAt, message);
+      } catch (logError) {
+        logger.error({ userId, error: logError }, 'Failed to record health sync failure');
+      }
+      throw error;
+    }
 
     logger.info({ userId, count: result.count }, 'Bulk health data sync completed');
 
@@ -82,9 +94,8 @@ export class HealthDataService implements IHealthDataService {
   }
 
   // Get My Health Data - .NET: async Task<PagedResponse<HealthDataResponse>> GetMyDataAsync(string userId, QueryHealthData query)
-  async getMyData(userId: string, query: QueryHealthData): Promise<{ data: HealthDataResponse[]; pagination: any }> {
-    const { type, startDate, endDate, limit, page, aggregate } = query;
-    const offset = (page - 1) * limit;
+  async getMyData(userId: string, query: QueryHealthData): Promise<{ data: Array<HealthDataResponse | Record<string, unknown>>; pagination: any }> {
+    const { type, startDate, endDate, limit, offset, aggregate } = query;
 
     const start = startDate ? new Date(startDate) : subDays(new Date(), 30);
     const end = endDate ? new Date(endDate) : new Date();
@@ -99,7 +110,7 @@ export class HealthDataService implements IHealthDataService {
     }
 
     return {
-      data: aggregated.map(this.toResponse),
+      data: aggregate && aggregate !== 'raw' ? aggregated : aggregated.map(this.toResponse),
       pagination: { total, limit, offset, hasMore: offset + limit < total },
     };
   }
@@ -129,7 +140,7 @@ export class HealthDataService implements IHealthDataService {
   }
 
   // Get Partner Health Data - .NET: async Task<PartnerDataResponse> GetPartnerDataAsync(string userId, PartnerHealthDataQuery query)
-  async getPartnerData(userId: string, query: PartnerHealthDataQuery): Promise<{ data: HealthDataResponse[]; pagination: any; partner: any }> {
+  async getPartnerData(userId: string, query: PartnerHealthDataQuery): Promise<{ data: Array<HealthDataResponse | Record<string, unknown>>; pagination: any; partner: any }> {
     const { partnerId, type, startDate, endDate, limit, aggregate } = query;
 
     // Verify pairing and access
@@ -156,7 +167,7 @@ export class HealthDataService implements IHealthDataService {
     }
 
     return {
-      data: aggregated.map(this.toResponse),
+      data: aggregate && aggregate !== 'raw' ? aggregated : aggregated.map(this.toResponse),
       pagination: { total, limit, hasMore: false },
       partner: {
         id: partnerId,
@@ -219,6 +230,7 @@ export class HealthDataService implements IHealthDataService {
       sourceName: healthData.sourceName,
       sourceVersion: healthData.sourceVersion,
       deviceId: healthData.deviceId,
+      sourceSampleId: healthData.sourceSampleId,
       metadata: healthData.metadata,
       syncedAt: healthData.syncedAt,
       createdAt: healthData.createdAt,

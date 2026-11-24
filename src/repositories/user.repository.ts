@@ -21,6 +21,8 @@ export interface IUserRepository extends BaseRepository<
     pairingsAsUser2: Pairing[]
   }) | null>;
   updateLastLogin(id: string): Promise<User>;
+  createWithPreferences(data: Prisma.UserCreateInput): Promise<User>;
+  incrementTokenVersion(id: string, expectedVersion: number): Promise<number>;
 }
 
 export class UserRepository extends BaseRepository<
@@ -33,7 +35,7 @@ export class UserRepository extends BaseRepository<
   protected model = prisma.user;
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.model.findUnique({ where: { email } });
+    return this.model.findUnique({ where: { email: email.trim().toLowerCase() } });
   }
 
   async findByAppleId(appleUserId: string): Promise<User | null> {
@@ -62,6 +64,22 @@ export class UserRepository extends BaseRepository<
       where: { id },
       data: { lastLoginAt: new Date() },
     });
+  }
+
+  async createWithPreferences(data: Prisma.UserCreateInput): Promise<User> {
+    return prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({ data });
+      await tx.userPreferences.create({ data: { userId: user.id } });
+      return user;
+    });
+  }
+
+  async incrementTokenVersion(id: string, expectedVersion: number): Promise<number> {
+    const result = await this.model.updateMany({
+      where: { id, tokenVersion: expectedVersion },
+      data: { tokenVersion: { increment: 1 } },
+    });
+    return result.count;
   }
 }
 

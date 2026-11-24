@@ -25,7 +25,26 @@ export const verifyAppleRequestSchema = z.object({
   identityToken: z.string().min(1),
 });
 
+export const registerRequestSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(8).max(128),
+});
+
+export const loginRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1).max(128),
+});
+
 // Responses
+export const emailAuthUserSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  email: z.string(),
+  avatarUrl: z.string().nullable(),
+  createdAt: z.date(),
+});
+
 export const userResponseSchema = z.object({
   id: z.string(),
   email: z.string(),
@@ -49,6 +68,13 @@ export const authResponseSchema = z.object({
   tokens: tokensResponseSchema,
 });
 
+export const emailAuthResponseSchema = successResponseSchema(
+  z.object({
+    user: emailAuthUserSchema,
+    tokens: tokensResponseSchema,
+  })
+);
+
 export const appleSignInResponseSchema = successResponseSchema(
   z.object({
     user: userResponseSchema.extend({ isNewUser: z.boolean() }),
@@ -67,7 +93,10 @@ export const logoutResponseSchema = successResponseSchema(z.object({ message: z.
 export type AppleSignInRequest = z.infer<typeof appleSignInRequestSchema>;
 export type RefreshTokenRequest = z.infer<typeof refreshTokenRequestSchema>;
 export type VerifyAppleRequest = z.infer<typeof verifyAppleRequestSchema>;
+export type RegisterRequest = z.infer<typeof registerRequestSchema>;
+export type LoginRequest = z.infer<typeof loginRequestSchema>;
 
 export type UserResponse = z.infer<typeof userResponseSchema>;
 export type TokensResponse = z.infer<typeof tokensResponseSchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
+export type EmailAuthResponse = z.infer<typeof emailAuthResponseSchema>['data'];

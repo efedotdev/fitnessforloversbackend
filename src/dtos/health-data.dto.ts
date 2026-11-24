@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { successResponseSchema, paginationQuerySchema, paginationResponseSchema } from './common';
+import { successResponseSchema } from './common';
 import { healthDataTypeEnum, healthDataUnitEnum } from './user.dto';
 
 // ============================================
@@ -19,6 +19,7 @@ export const createHealthDataRequestSchema = z.object({
   sourceName: z.string().optional(),
   sourceVersion: z.string().optional(),
   deviceId: z.string().optional(),
+  sourceSampleId: z.string().min(1).max(255).optional(),
   metadata: z.record(z.any()).optional(),
 });
 
@@ -26,10 +27,12 @@ export const bulkHealthDataRequestSchema = z.object({
   data: z.array(createHealthDataRequestSchema).min(1).max(1000),
 });
 
-export const queryHealthDataSchema = paginationQuerySchema.extend({
+export const queryHealthDataSchema = z.object({
   type: healthDataTypeEnum.optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
+  limit: z.coerce.number().min(1).max(1000).default(100),
+  offset: z.coerce.number().min(0).default(0),
   aggregate: aggregateEnum.optional(),
 });
 
@@ -54,6 +57,7 @@ export const healthDataResponseSchema = z.object({
   sourceName: z.string().nullable(),
   sourceVersion: z.string().nullable(),
   deviceId: z.string().nullable(),
+  sourceSampleId: z.string().nullable(),
   metadata: z.any().nullable(),
   syncedAt: z.date(),
   createdAt: z.date(),
@@ -65,10 +69,30 @@ export const aggregatedHealthDataSchema = z.object({
 
 export const healthDataListResponseSchema = successResponseSchema(z.object({
   data: z.array(healthDataResponseSchema).or(z.array(aggregatedHealthDataSchema)),
-  pagination: paginationResponseSchema,
+  pagination: z.object({
+    total: z.number(),
+    limit: z.number(),
+    offset: z.number().optional(),
+    hasMore: z.boolean(),
+  }),
 }));
 
 export const bulkSyncResponseSchema = successResponseSchema(z.object({ synced: z.number() }));
+export const createHealthDataResponseSchema = successResponseSchema(
+  z.object({ healthData: healthDataResponseSchema })
+);
+export const partnerHealthDataResponseSchema = successResponseSchema(z.object({
+  data: z.array(healthDataResponseSchema).or(z.array(aggregatedHealthDataSchema)),
+  pagination: z.object({
+    total: z.number(),
+    limit: z.number(),
+    hasMore: z.boolean(),
+  }),
+  partner: z.object({
+    id: z.string(),
+    sharingScope: z.string(),
+  }),
+}));
 
 export const dailySummarySchema = z.object({
   date: z.string(),

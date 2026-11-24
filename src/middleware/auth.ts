@@ -6,14 +6,18 @@ export interface UserPayload {
   email: string;
   appleUserId?: string;
   role: string;
+  tokenVersion: number;
 }
 
 const PUBLIC_PATHS = [
   '/health',
+  '/auth/register',
+  '/auth/login',
   '/auth/apple',
   '/auth/refresh',
   '/auth/verify-apple',
   '/docs',
+  '/documentation',
 ];
 
 export async function authMiddleware(request: FastifyRequest, reply: FastifyReply) {
@@ -41,17 +45,30 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
   try {
     const app = request.server;
-    const decoded = app.jwt.verify<{ sub: string; email: string; role: string }>(token);
+    const decoded = app.jwt.verify<{
+      sub: string;
+      email: string;
+      role: string;
+      tokenVersion?: number;
+    }>(token);
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
-      select: { id: true, email: true, appleUserId: true, role: true },
+      select: { id: true, email: true, appleUserId: true, role: true, tokenVersion: true },
     });
 
     if (!user) {
       return reply.code(401).send({
         error: 'Unauthorized',
         message: 'User not found',
+        statusCode: 401,
+      });
+    }
+
+    if ((decoded.tokenVersion ?? 0) !== user.tokenVersion) {
+      return reply.code(401).send({
+        error: 'Unauthorized',
+        message: 'Invalid or expired token',
         statusCode: 401,
       });
     }

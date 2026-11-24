@@ -1,7 +1,19 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController, getUserId } from './base.controller';
 import { healthDataService } from '../services';
-import { CreateHealthDataRequest, BulkHealthDataRequest, QueryHealthData, PartnerHealthDataQuery } from '../dtos';
+import {
+  CreateHealthDataRequest,
+  BulkHealthDataRequest,
+  QueryHealthData,
+  PartnerHealthDataQuery,
+  bulkSyncResponseSchema,
+  createHealthDataResponseSchema,
+  healthDataListResponseSchema,
+  partnerHealthDataResponseSchema,
+  summaryResponseSchema,
+  partnerSummaryResponseSchema,
+  deleteHealthDataResponseSchema,
+} from '../dtos';
 
 // ============================================
 // HEALTH DATA CONTROLLER - .NET: HealthDataController
@@ -79,6 +91,8 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
 
   app.post('/health-data', {
     schema: {
+      tags: ['Health data'],
+      summary: 'Create a health data sample',
       body: {
         type: 'object',
         required: ['type', 'unit', 'value', 'startDate', 'endDate'],
@@ -91,14 +105,18 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
           sourceName: { type: 'string' },
           sourceVersion: { type: 'string' },
           deviceId: { type: 'string' },
+          sourceSampleId: { type: 'string', minLength: 1, maxLength: 255 },
           metadata: { type: 'object' },
         },
       },
+      response: { 201: createHealthDataResponseSchema },
     },
   }, controller.create.bind(controller));
 
   app.post('/health-data/bulk', {
     schema: {
+      tags: ['Health data'],
+      summary: 'Idempotently sync HealthKit samples in bulk',
       body: {
         type: 'object',
         required: ['data'],
@@ -119,9 +137,11 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
                 sourceName: { type: 'string' },
                 sourceVersion: { type: 'string' },
                 deviceId: { type: 'string' },
+                sourceSampleId: { type: 'string', minLength: 1, maxLength: 255 },
                 metadata: { type: 'object' },
               },
             },
+            response: { 200: bulkSyncResponseSchema },
           },
         },
       },
@@ -130,6 +150,8 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
 
   app.get('/health-data', {
     schema: {
+      tags: ['Health data'],
+      summary: 'List the authenticated user health data',
       querystring: {
         type: 'object',
         properties: {
@@ -141,13 +163,22 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
           aggregate: { type: 'string', enum: ['raw', 'hourly', 'daily', 'weekly'] },
         },
       },
+      response: { 200: healthDataListResponseSchema },
     },
   }, controller.getMyData.bind(controller));
 
-  app.get('/health-data/summary', controller.getDailySummary.bind(controller));
+  app.get('/health-data/summary', {
+    schema: {
+      tags: ['Health data'],
+      summary: 'Get the authenticated user daily summary',
+      response: { 200: summaryResponseSchema },
+    },
+  }, controller.getDailySummary.bind(controller));
 
   app.get('/health-data/partner/:partnerId', {
     schema: {
+      tags: ['Health data'],
+      summary: 'List a partner health data shared under the accepted pairing scope',
       params: { type: 'object', required: ['partnerId'], properties: { partnerId: { type: 'string', format: 'cuid' } } },
       querystring: {
         type: 'object',
@@ -159,18 +190,25 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
           aggregate: { type: 'string', enum: ['raw', 'hourly', 'daily', 'weekly'] },
         },
       },
+      response: { 200: partnerHealthDataResponseSchema },
     },
   }, controller.getPartnerData.bind(controller));
 
   app.get('/health-data/partner/:partnerId/summary', {
     schema: {
+      tags: ['Health data'],
+      summary: 'Get a partner daily summary shared under the accepted pairing scope',
       params: { type: 'object', required: ['partnerId'], properties: { partnerId: { type: 'string', format: 'cuid' } } },
+      response: { 200: partnerSummaryResponseSchema },
     },
   }, controller.getPartnerSummary.bind(controller));
 
   app.delete('/health-data/:id', {
     schema: {
+      tags: ['Health data'],
+      summary: 'Delete an owned health data sample',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'cuid' } } },
+      response: { 200: deleteHealthDataResponseSchema },
     },
   }, controller.delete.bind(controller));
 }

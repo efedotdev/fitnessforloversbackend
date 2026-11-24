@@ -66,9 +66,10 @@ export class PairingService implements IPairingService {
     }
 
     // Create pairing invitation
-    const pairing = await pairingRepository.create({
+    const pairing = await pairingRepository.createWithUsers({
       user1: { connect: { id: userId } },
       user2: { connect: { id: invitee.id } },
+      pairKey: [userId, invitee.id].sort().join(':'),
       sharingScope,
       customTypes: customTypes || [],
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days

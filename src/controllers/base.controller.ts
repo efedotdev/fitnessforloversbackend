@@ -32,6 +32,7 @@ export interface AuthenticatedRequest extends FastifyRequest {
     email: string;
     appleUserId?: string;
     role: string;
+    tokenVersion: number;
   };
 }
 
@@ -42,4 +43,12 @@ export function getUserId(request: FastifyRequest): string {
     throw new Error('User not authenticated');
   }
   return user.id;
+}
+
+export function getUserTokenVersion(request: FastifyRequest): number {
+  const user = (request as any).user as AuthenticatedRequest['user'] | undefined;
+  if (!user) {
+    throw new Error('User not authenticated');
+  }
+  return user.tokenVersion;
 }
