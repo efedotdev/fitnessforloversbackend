@@ -5,6 +5,7 @@ import { logger } from '../config/logger';
 import { config } from '../config';
 import { validate } from '../middleware/validation';
 import { getUser } from '../middleware/auth';
+import { verifyAppleIdentityToken } from '../services/auth.service';
 
 // ============================================
 // SCHEMAS
@@ -38,18 +39,6 @@ async function generateTokens(app: FastifyInstance, userId: string, email: strin
   return { accessToken, refreshToken };
 }
 
-function extractAppleUserId(identityToken: string): string | null {
-  try {
-    const parts = identityToken.split('.');
-    const payloadPart = parts[1];
-    if (!payloadPart) return null;
-    const payload = JSON.parse(Buffer.from(payloadPart, 'base64').toString());
-    return payload.sub || null;
-  } catch {
-    return null;
-  }
-}
-
 // ============================================
 // ROUTES
 // ============================================
@@ -78,24 +67,21 @@ export async function authRoutes(app: FastifyInstance) {
     },
     preHandler: validate(appleSignInSchema),
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { identityToken, authorizationCode, fullName, email: providedEmail } = request.body as any;
-
-    const appleUserId = extractAppleUserId(identityToken ?? '');
-    if (!appleUserId) {
-      return reply.code(400).send({ error: 'Bad Request', message: 'Invalid identity token' });
-    }
+    const { identityToken, fullName } = request.body as any;
+    const appleIdentity = await verifyAppleIdentityToken(identityToken);
+    const appleUserId = appleIdentity.sub;
 
     let user = await prisma.user.findUnique({ where: { appleUserId } });
     let isNewUser = false;
 
     if (!user) {
-      const email = providedEmail || `${appleUserId}@appleid.privacy`;
+      const email = appleIdentity.email || `${appleUserId}@appleid.privacy`;
       user = await prisma.user.create({
         data: {
           appleUserId,
           email,
           name: fullName ? `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim() || null : null,
-          emailVerified: !!providedEmail,
+          emailVerified: appleIdentity.email_verified === true || appleIdentity.email_verified === 'true',
         },
       });
       isNewUser = true;
@@ -137,7 +123,9 @@ export async function authRoutes(app: FastifyInstance) {
     const { refreshToken } = request.body as any;
 
     try {
-      const decoded = app.jwt.verify<{ sub: string; type: string }>(refreshToken);
+      const decoded = app.jwt.verify<{ sub: string; type: string }>(refreshToken, {
+        maxAge: config.JWT_REFRESH_EXPIRES_IN,
+      });
 
       if (decoded.type !== 'refresh') {
         return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid token type' });
@@ -172,14 +160,8 @@ export async function authRoutes(app: FastifyInstance) {
     preHandler: validate(verifyAppleSchema),
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { identityToken } = request.body as any;
-
-    const appleUserId = extractAppleUserId(identityToken ?? '');
-
-    if (!appleUserId) {
-      return reply.code(400).send({ error: 'Bad Request', message: 'Invalid identity token' });
-    }
-
-    return reply.send({ valid: true, appleUserId });
+    const appleIdentity = await verifyAppleIdentityToken(identityToken);
+    return reply.send({ valid: true, appleUserId: appleIdentity.sub });
   });
 
   // POST /auth/logout
