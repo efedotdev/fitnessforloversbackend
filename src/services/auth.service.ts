@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify';
+import appleSignin from 'apple-signin-auth';
+import { JsonWebTokenError } from 'jsonwebtoken';
 import { userRepository, userPreferencesRepository } from '../repositories';
 import {
   AppleSignInRequest,
@@ -16,7 +18,24 @@ import {
   ConflictError,
   InternalServerError
 } from '../exceptions';
+import { config } from '../config';
 import { logger } from '../config/logger';
+
+export async function verifyAppleIdentityToken(identityToken: string) {
+  const audience = config.APPLE_BUNDLE_ID;
+  if (!audience) {
+    throw new InternalServerError('Apple Sign In is not configured');
+  }
+
+  try {
+    return await appleSignin.verifyIdToken(identityToken, { audience });
+  } catch (error) {
+    if (error instanceof JsonWebTokenError) {
+      throw new BadRequestError('Invalid identity token');
+    }
+    throw error;
+  }
+}
 
 // ============================================
 // AUTH SERVICE - .NET: IAuthService / AuthService
@@ -36,19 +55,17 @@ export interface IAuthService {
 export class AuthService implements IAuthService {
   // Apple Sign In - .NET: async Task<AuthResponse> AppleSignInAsync(AppleSignInRequest request)
   async appleSignIn(request: AppleSignInRequest, app: FastifyInstance): Promise<AppleSignInResponseData> {
-    const { identityToken, authorizationCode, fullName, email: providedEmail } = request;
+    const { identityToken, fullName } = request;
 
-    const appleUserId = this.extractAppleUserId(identityToken);
-    if (!appleUserId) {
-      throw new BadRequestError('Invalid identity token');
-    }
+    const appleIdentity = await verifyAppleIdentityToken(identityToken);
+    const appleUserId = appleIdentity.sub;
 
     // Find or create user
     let user = await userRepository.findByAppleId(appleUserId);
     let isNewUser = false;
 
     if (!user) {
-      const email = providedEmail || `${appleUserId}@appleid.privacy`;
+      const email = appleIdentity.email || `${appleUserId}@appleid.privacy`;
 
       // Check if email already exists (different Apple ID)
       const existingEmail = await userRepository.findByEmail(email);
@@ -62,7 +79,7 @@ export class AuthService implements IAuthService {
         name: fullName
           ? `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim() || null
           : null,
-        emailVerified: !!providedEmail,
+        emailVerified: appleIdentity.email_verified === true || appleIdentity.email_verified === 'true',
       });
 
       // Create default preferences
@@ -100,7 +117,9 @@ export class AuthService implements IAuthService {
     const { refreshToken } = request;
 
     try {
-      const decoded = app.jwt.verify<{ sub: string; type: string }>(refreshToken);
+      const decoded = app.jwt.verify<{ sub: string; type: string }>(refreshToken, {
+        maxAge: config.JWT_REFRESH_EXPIRES_IN,
+      });
 
       if (decoded.type !== 'refresh') {
         throw new UnauthorizedError('Invalid token type');
@@ -120,14 +139,8 @@ export class AuthService implements IAuthService {
 
   // Verify Apple Identity Token - .NET: async Task<VerifyResponse> VerifyAppleAsync(VerifyAppleRequest request)
   async verifyAppleToken(request: VerifyAppleRequest): Promise<{ valid: boolean; appleUserId?: string }> {
-    const { identityToken } = request;
-    const appleUserId = this.extractAppleUserId(identityToken);
-
-    if (!appleUserId) {
-      throw new BadRequestError('Invalid identity token');
-    }
-
-    return { valid: true, appleUserId };
+    const appleIdentity = await verifyAppleIdentityToken(request.identityToken);
+    return { valid: true, appleUserId: appleIdentity.sub };
   }
 
   // Get Current User Profile - .NET: async Task<UserResponse> GetCurrentUserAsync(string userId)
@@ -167,22 +180,11 @@ export class AuthService implements IAuthService {
     email: string,
     role: string
   ): Promise<TokensResponse> {
-    const accessToken = app.jwt.sign({ sub: userId, email, role }, { expiresIn: '15m' });
-    const refreshToken = app.jwt.sign({ sub: userId, type: 'refresh' }, { expiresIn: '30d' });
+    const accessToken = app.jwt.sign({ sub: userId, email, role }, { expiresIn: config.JWT_EXPIRES_IN });
+    const refreshToken = app.jwt.sign({ sub: userId, type: 'refresh' }, { expiresIn: config.JWT_REFRESH_EXPIRES_IN });
     return { accessToken, refreshToken };
   }
 
-  private extractAppleUserId(identityToken: string): string | null {
-    try {
-      const parts = identityToken.split('.');
-      const payloadPart = parts[1];
-      if (!payloadPart) return null;
-      const payload = JSON.parse(Buffer.from(payloadPart, 'base64').toString());
-      return payload.sub || null;
-    } catch {
-      return null;
-    }
-  }
 }
 
 // Singleton instance - .NET: services.AddScoped<IAuthService, AuthService>()
