@@ -43,6 +43,9 @@ export interface IHealthDataRepository extends BaseRepository<
     startDate: Date,
     endDate: Date
   ): Promise<{ _sum: { value: number | null }; _avg: { value: number | null }; _min: { value: number | null }; _max: { value: number | null } }>;
+  sumStepsForUsersBetween(userIds: string[], startDate: Date, endDate: Date): Promise<number>;
+  getLatestSync(userId: string): Promise<{ completedAt: Date | null; status: string } | null>;
+  createFailedSyncLog(userId: string, startedAt: Date, errorMessage: string): Promise<void>;
 }
 
 export class HealthDataRepository extends BaseRepository<
@@ -160,6 +163,41 @@ export class HealthDataRepository extends BaseRepository<
       _avg: { value: true },
       _min: { value: true },
       _max: { value: true },
+    });
+  }
+
+  async sumStepsForUsersBetween(userIds: string[], startDate: Date, endDate: Date): Promise<number> {
+    if (userIds.length === 0) return 0;
+    const result = await this.model.aggregate({
+      where: {
+        userId: { in: userIds },
+        type: 'STEPS',
+        startDate: { gte: startDate },
+        endDate: { lte: endDate },
+      },
+      _sum: { value: true },
+    });
+    return result._sum.value ?? 0;
+  }
+
+  async getLatestSync(userId: string): Promise<{ completedAt: Date | null; status: string } | null> {
+    return prisma.syncLog.findFirst({
+      where: { userId },
+      select: { completedAt: true, status: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createFailedSyncLog(userId: string, startedAt: Date, errorMessage: string): Promise<void> {
+    await prisma.syncLog.create({
+      data: {
+        userId,
+        recordsCount: 0,
+        status: 'FAILED',
+        errorMessage,
+        startedAt,
+        completedAt: new Date(),
+      },
     });
   }
 }

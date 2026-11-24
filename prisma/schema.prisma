@@ -91,58 +91,61 @@ enum DevicePlatform {
 // ============================================
 
 model User {
-  id                String    @id @default(cuid())
-  email             String    @unique
-  appleUserId       String?   @unique // Apple Sign In identifier
-  name              String?
-  avatarUrl         String?
-  role              UserRole  @default(USER)
-  emailVerified     Boolean   @default(false)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  lastLoginAt       DateTime?
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?
+  appleUserId   String?   @unique // Apple Sign In identifier
+  name          String?
+  avatarUrl     String?
+  role          UserRole  @default(USER)
+  tokenVersion  Int       @default(0)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
 
   // Relations
-  healthData        HealthData[]
-  pairingsAsUser1   Pairing[] @relation("User1Pairings")
-  pairingsAsUser2   Pairing[] @relation("User2Pairings")
-  devices           Device[]
-  notifications     Notification[]
-  preferences       UserPreferences?
+  healthData      HealthData[]
+  pairingsAsUser1 Pairing[]        @relation("User1Pairings")
+  pairingsAsUser2 Pairing[]        @relation("User2Pairings")
+  createdGoals    SharedGoal[]     @relation("GoalCreator")
+  devices         Device[]
+  notifications   Notification[]
+  preferences     UserPreferences?
 
   @@index([appleUserId])
   @@index([email])
 }
 
 model UserPreferences {
-  id                    String        @id @default(cuid())
-  userId                String        @unique
-  sharingScope          SharingScope  @default(ACTIVITY_ONLY)
+  id                    String           @id @default(cuid())
+  userId                String           @unique
+  sharingScope          SharingScope     @default(ACTIVITY_ONLY)
   customDataTypes       HealthDataType[]
-  notifyOnNewData       Boolean       @default(true)
-  notifyOnPartnerActive Boolean       @default(true)
-  weeklyDigest          Boolean       @default(false)
-  timezone              String        @default("UTC")
-  language              String        @default("tr")
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  notifyOnNewData       Boolean          @default(true)
+  notifyOnPartnerActive Boolean          @default(true)
+  weeklyDigest          Boolean          @default(false)
+  timezone              String           @default("UTC")
+  language              String           @default("tr")
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Device {
-  id            String         @id @default(cuid())
-  userId        String
-  deviceId      String         // Apple device identifier
-  platform      DevicePlatform @default(IOS)
-  model         String?
-  osVersion     String?
-  appVersion    String?
-  pushToken     String?        // For push notifications
-  isActive      Boolean        @default(true)
-  lastSyncAt    DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id         String         @id @default(cuid())
+  userId     String
+  deviceId   String // Apple device identifier
+  platform   DevicePlatform @default(IOS)
+  model      String?
+  osVersion  String?
+  appVersion String?
+  pushToken  String? // For push notifications
+  isActive   Boolean        @default(true)
+  lastSyncAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -152,21 +155,23 @@ model Device {
 }
 
 model Pairing {
-  id            String         @id @default(cuid())
-  user1Id       String         // Inviter
-  user2Id       String         // Invitee
-  status        PairingStatus  @default(PENDING)
-  sharingScope  SharingScope   @default(ACTIVITY_ONLY)
-  customTypes   HealthDataType[]
-  invitedAt     DateTime       @default(now())
-  acceptedAt    DateTime?
-  rejectedAt    DateTime?
-  expiresAt     DateTime
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id           String           @id @default(cuid())
+  user1Id      String // Inviter
+  user2Id      String // Invitee
+  pairKey      String?          @unique
+  status       PairingStatus    @default(PENDING)
+  sharingScope SharingScope     @default(ACTIVITY_ONLY)
+  customTypes  HealthDataType[]
+  invitedAt    DateTime         @default(now())
+  acceptedAt   DateTime?
+  rejectedAt   DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
-  user1 User @relation("User1Pairings", fields: [user1Id], references: [id], onDelete: Cascade)
-  user2 User @relation("User2Pairings", fields: [user2Id], references: [id], onDelete: Cascade)
+  user1 User         @relation("User1Pairings", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2 User         @relation("User2Pairings", fields: [user2Id], references: [id], onDelete: Cascade)
+  goals SharedGoal[]
 
   @@unique([user1Id, user2Id])
   @@index([user1Id, status])
@@ -175,36 +180,56 @@ model Pairing {
 }
 
 model HealthData {
-  id              String         @id @default(cuid())
-  userId          String
-  type            HealthDataType
-  unit            HealthDataUnit
-  value           Float
-  startDate       DateTime
-  endDate         DateTime
-  sourceName      String?        // "HealthKit", "Apple Watch", etc.
-  sourceVersion   String?
-  deviceId        String?        // Device that recorded this
-  metadata        Json?          // Additional data (workout type, sleep stages, etc.)
-  syncedAt        DateTime       @default(now())
-  createdAt       DateTime       @default(now())
+  id             String         @id @default(cuid())
+  userId         String
+  type           HealthDataType
+  unit           HealthDataUnit
+  value          Float
+  startDate      DateTime
+  endDate        DateTime
+  sourceName     String? // "HealthKit", "Apple Watch", etc.
+  sourceVersion  String?
+  deviceId       String? // Device that recorded this
+  sourceSampleId String? // Stable HealthKit sample identifier for idempotent sync
+  metadata       Json? // Additional data (workout type, sleep stages, etc.)
+  syncedAt       DateTime       @default(now())
+  createdAt      DateTime       @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, sourceSampleId])
   @@index([userId, type, startDate])
   @@index([userId, syncedAt])
   @@index([type, startDate])
 }
 
+model SharedGoal {
+  id          String   @id @default(cuid())
+  pairingId   String
+  createdById String
+  title       String
+  targetValue Float
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  pairing   Pairing @relation(fields: [pairingId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("GoalCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([pairingId, startDate, endDate])
+  @@index([createdById])
+}
+
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   title     String
   body      String
   data      Json?
-  read      Boolean  @default(false)
+  read      Boolean   @default(false)
   sentAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -212,15 +237,15 @@ model Notification {
 }
 
 model SyncLog {
-  id            String   @id @default(cuid())
-  userId        String
-  deviceId      String?
-  recordsCount  Int      @default(0)
-  status        String   // SUCCESS, PARTIAL, FAILED
-  errorMessage  String?
-  startedAt     DateTime @default(now())
-  completedAt   DateTime?
-  createdAt     DateTime @default(now())
+  id           String    @id @default(cuid())
+  userId       String
+  deviceId     String?
+  recordsCount Int       @default(0)
+  status       String // SUCCESS, PARTIAL, FAILED
+  errorMessage String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([status])

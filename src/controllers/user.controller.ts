@@ -1,7 +1,14 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { BaseController, getUserId } from './base.controller';
 import { userService } from '../services';
-import { UpdateProfileRequest, UpdatePreferencesRequest } from '../dtos';
+import {
+  UpdateProfileRequest,
+  UpdatePreferencesRequest,
+  profileResponseSchema,
+  preferencesResponseSchema,
+  deleteAccountResponseSchema,
+  publicUserResponseSchema,
+} from '../dtos';
 
 // ============================================
 // USER CONTROLLER - .NET: UserController
@@ -64,22 +71,39 @@ export class UserController extends BaseController {
 export function registerUserRoutes(app: FastifyInstance) {
   const controller = new UserController();
 
-  app.get('/users/me', controller.getProfile.bind(controller));
+  app.get('/users/me', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Get the authenticated user profile and preferences',
+      response: { 200: profileResponseSchema },
+    },
+  }, controller.getProfile.bind(controller));
   app.patch('/users/me', {
     schema: {
+      tags: ['Users'],
+      summary: 'Update the authenticated user profile',
       body: {
         type: 'object',
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 100 },
           avatarUrl: { type: 'string', format: 'uri' },
         },
+        response: { 200: profileResponseSchema },
       },
     },
   }, controller.updateProfile.bind(controller));
 
-  app.get('/users/me/preferences', controller.getPreferences.bind(controller));
+  app.get('/users/me/preferences', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Get user preferences',
+      response: { 200: preferencesResponseSchema },
+    },
+  }, controller.getPreferences.bind(controller));
   app.patch('/users/me/preferences', {
     schema: {
+      tags: ['Users'],
+      summary: 'Update user preferences and sharing scope',
       body: {
         type: 'object',
         properties: {
@@ -91,18 +115,28 @@ export function registerUserRoutes(app: FastifyInstance) {
           timezone: { type: 'string' },
           language: { type: 'string' },
         },
+        response: { 200: preferencesResponseSchema },
       },
     },
   }, controller.updatePreferences.bind(controller));
 
-  app.delete('/users/me', controller.deleteAccount.bind(controller));
+  app.delete('/users/me', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Delete the authenticated user account',
+      response: { 200: deleteAccountResponseSchema },
+    },
+  }, controller.deleteAccount.bind(controller));
   app.get('/users/:id', {
     schema: {
+      tags: ['Users'],
+      summary: 'Get a public user profile',
       params: {
         type: 'object',
         required: ['id'],
         properties: { id: { type: 'string', format: 'cuid' } },
       },
+      response: { 200: publicUserResponseSchema },
     },
   }, controller.getPublicProfile.bind(controller));
 }

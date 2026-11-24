@@ -1,4 +1,4 @@
-import { Prisma, Pairing, PairingStatus, SharingScope, HealthDataType } from '@prisma/client';
+import { Prisma, Pairing, PairingStatus, SharingScope, HealthDataType, User } from '@prisma/client';
 import { BaseRepository } from './base.repository';
 import { prisma } from '../config/database';
 
@@ -13,6 +13,10 @@ export interface IPairingRepository extends BaseRepository<
   Prisma.PairingUpdateInput,
   Prisma.PairingWhereInput
 > {
+  createWithUsers(data: Prisma.PairingCreateInput): Promise<Pairing & {
+    user1: Pick<User, 'id' | 'name' | 'avatarUrl' | 'email'>;
+    user2: Pick<User, 'id' | 'name' | 'avatarUrl' | 'email'>;
+  }>;
   findBetweenUsers(user1Id: string, user2Id: string): Promise<Pairing | null>;
   findAcceptedByUser(userId: string): Promise<Pairing[]>;
   findPendingReceived(userId: string): Promise<Pairing[]>;
@@ -30,6 +34,16 @@ export class PairingRepository extends BaseRepository<
 > implements IPairingRepository {
 
   protected model = prisma.pairing;
+
+  async createWithUsers(data: Prisma.PairingCreateInput) {
+    return this.model.create({
+      data,
+      include: {
+        user1: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        user2: { select: { id: true, name: true, avatarUrl: true, email: true } },
+      },
+    });
+  }
 
   async findBetweenUsers(user1Id: string, user2Id: string): Promise<Pairing | null> {
     return this.model.findFirst({
@@ -65,6 +79,7 @@ export class PairingRepository extends BaseRepository<
       },
       include: {
         user1: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        user2: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
       orderBy: { invitedAt: 'desc' },
     });
@@ -78,6 +93,7 @@ export class PairingRepository extends BaseRepository<
         expiresAt: { gt: new Date() },
       },
       include: {
+        user1: { select: { id: true, name: true, avatarUrl: true, email: true } },
         user2: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
       orderBy: { invitedAt: 'desc' },
@@ -106,8 +122,8 @@ export class PairingRepository extends BaseRepository<
         ...extraData,
       },
       include: {
-        user1: { select: { id: true, name: true, avatarUrl: true } },
-        user2: { select: { id: true, name: true, avatarUrl: true } },
+        user1: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        user2: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
     });
   }
@@ -124,8 +140,8 @@ export class PairingRepository extends BaseRepository<
         customTypes: customTypes ?? [],
       },
       include: {
-        user1: { select: { id: true, name: true, avatarUrl: true } },
-        user2: { select: { id: true, name: true, avatarUrl: true } },
+        user1: { select: { id: true, name: true, avatarUrl: true, email: true } },
+        user2: { select: { id: true, name: true, avatarUrl: true, email: true } },
       },
     });
   }

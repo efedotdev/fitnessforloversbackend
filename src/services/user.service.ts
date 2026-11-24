@@ -6,7 +6,7 @@ import {
   UserPreferencesResponse,
   UserPublicResponse,
 } from '../dtos';
-import { NotFoundError, InternalServerError } from '../exceptions';
+import { NotFoundError, InternalServerError, BadRequestError } from '../exceptions';
 import { logger } from '../config/logger';
 
 // ============================================
@@ -91,6 +91,14 @@ export class UserService implements IUserService {
 
   // Update Preferences - .NET: async Task<UserPreferencesResponse> UpdatePreferencesAsync(string userId, UpdatePreferencesRequest data)
   async updatePreferences(userId: string, data: UpdatePreferencesRequest): Promise<UserPreferencesResponse> {
+    if (data.timezone) {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: data.timezone });
+      } catch {
+        throw new BadRequestError('Invalid timezone preference');
+      }
+    }
+
     const preferences = await userPreferencesRepository.upsert(userId, {
       user: { connect: { id: userId } },
       ...data

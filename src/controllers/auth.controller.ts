@@ -1,10 +1,20 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { BaseController, getUserId } from './base.controller';
+import { BaseController, getUserId, getUserTokenVersion } from './base.controller';
 import { authService } from '../services';
 import {
   AppleSignInRequest,
   RefreshTokenRequest,
   VerifyAppleRequest,
+  RegisterRequest,
+  LoginRequest,
+  registerRequestSchema,
+  loginRequestSchema,
+  emailAuthResponseSchema,
+  appleSignInResponseSchema,
+  refreshResponseSchema,
+  verifyAppleResponseSchema,
+  meResponseSchema,
+  logoutResponseSchema,
 } from '../dtos';
 
 // ============================================
@@ -13,6 +23,18 @@ import {
 // Presentation layer: HTTP handling for authentication endpoints
 
 export class AuthController extends BaseController {
+  async register(request: FastifyRequest, reply: FastifyReply) {
+    const body = request.body as RegisterRequest;
+    const result = await authService.register(body, request.server);
+    return this.created(reply, result);
+  }
+
+  async login(request: FastifyRequest, reply: FastifyReply) {
+    const body = request.body as LoginRequest;
+    const result = await authService.login(body, request.server);
+    return this.ok(reply, result);
+  }
+
   // POST /auth/apple - Apple Sign In
   // .NET: [HttpPost("apple")] public async Task<IActionResult> AppleSignIn(AppleSignInRequest request)
   async appleSignIn(request: FastifyRequest, reply: FastifyReply) {
@@ -41,7 +63,7 @@ export class AuthController extends BaseController {
   // .NET: [HttpPost("logout")] public async Task<IActionResult> Logout()
   async logout(request: FastifyRequest, reply: FastifyReply) {
     const userId = getUserId(request);
-    const result = await authService.logout(userId);
+    const result = await authService.logout(userId, getUserTokenVersion(request));
     return this.ok(reply, result);
   }
 
@@ -59,8 +81,31 @@ export function registerAuthRoutes(app: FastifyInstance) {
   const controller = new AuthController();
 
   // Public routes (no auth required)
+  app.post('/auth/register', {
+    schema: {
+      tags: ['Authentication'],
+      summary: 'Create an email and password account',
+      body: registerRequestSchema,
+      response: { 201: emailAuthResponseSchema },
+      security: [],
+    },
+  }, controller.register.bind(controller));
+
+  app.post('/auth/login', {
+    schema: {
+      tags: ['Authentication'],
+      summary: 'Authenticate with email and password',
+      body: loginRequestSchema,
+      response: { 200: emailAuthResponseSchema },
+      security: [],
+    },
+  }, controller.login.bind(controller));
+
   app.post('/auth/apple', {
     schema: {
+      tags: ['Authentication'],
+      summary: 'Sign in with Apple',
+      security: [],
       body: {
         type: 'object',
         required: ['identityToken'],
@@ -77,30 +122,50 @@ export function registerAuthRoutes(app: FastifyInstance) {
           email: { type: 'string', format: 'email' },
         },
       },
+      response: { 201: appleSignInResponseSchema },
     },
   }, controller.appleSignIn.bind(controller));
 
   app.post('/auth/refresh', {
     schema: {
+      tags: ['Authentication'],
+      summary: 'Refresh the access and refresh tokens',
+      security: [],
       body: {
         type: 'object',
         required: ['refreshToken'],
         properties: { refreshToken: { type: 'string' } },
       },
+      response: { 200: refreshResponseSchema },
     },
   }, controller.refreshToken.bind(controller));
 
   app.post('/auth/verify-apple', {
     schema: {
+      tags: ['Authentication'],
+      security: [],
       body: {
         type: 'object',
         required: ['identityToken'],
         properties: { identityToken: { type: 'string' } },
       },
+      response: { 200: verifyAppleResponseSchema },
     },
   }, controller.verifyApple.bind(controller));
 
   // Protected routes (auth required via global hook)
-  app.post('/auth/logout', controller.logout.bind(controller));
-  app.get('/auth/me', controller.getMe.bind(controller));
+  app.post('/auth/logout', {
+    schema: {
+      tags: ['Authentication'],
+      summary: 'Invalidate the current user token version',
+      response: { 200: logoutResponseSchema },
+    },
+  }, controller.logout.bind(controller));
+  app.get('/auth/me', {
+    schema: {
+      tags: ['Authentication'],
+      summary: 'Get the authenticated user profile',
+      response: { 200: meResponseSchema },
+    },
+  }, controller.getMe.bind(controller));
 }

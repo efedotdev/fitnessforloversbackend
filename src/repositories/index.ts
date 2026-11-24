@@ -7,6 +7,7 @@ export * from './base.repository';
 export * from './user.repository';
 export * from './pairing.repository';
 export * from './health-data.repository';
+export * from './goal.repository';
 export * from './device.repository';
 export * from './notification.repository';
 
