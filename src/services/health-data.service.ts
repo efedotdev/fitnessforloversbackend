@@ -34,6 +34,16 @@ export interface IHealthDataService {
   delete(userId: string, healthDataId: string): Promise<{ message: string }>;
 }
 
+function isDailyHealthKitStepsAggregate(record: {
+  type: HealthDataType;
+  sourceName?: string;
+  sourceSampleId?: string;
+}): boolean {
+  return record.type === 'STEPS'
+    && record.sourceName === 'HealthKit daily aggregate'
+    && record.sourceSampleId?.startsWith('healthkit-daily-steps-') === true;
+}
+
 export class HealthDataService implements IHealthDataService {
   // Create Single Health Data - .NET: async Task<HealthDataResponse> CreateAsync(string userId, CreateHealthDataRequest data)
   async create(userId: string, data: CreateHealthDataRequest): Promise<HealthDataResponse> {
@@ -59,25 +69,50 @@ export class HealthDataService implements IHealthDataService {
       endDate: new Date(d.endDate),
     }));
 
-    let result: { count: number };
+    let synced: number;
     try {
-      result = await healthDataRepository.transaction(async (tx: any) => {
+      synced = await healthDataRepository.transaction(async (tx: any) => {
+        const dailyAggregates = records.filter(isDailyHealthKitStepsAggregate);
+        const samples = records.filter((record) => !isDailyHealthKitStepsAggregate(record));
         const created = await tx.healthData.createMany({
-          data: records,
+          data: samples,
           skipDuplicates: true,
         });
 
+        await Promise.all(dailyAggregates.map((record) => tx.healthData.upsert({
+          where: {
+            userId_sourceSampleId: {
+              userId,
+              sourceSampleId: record.sourceSampleId,
+            },
+          },
+          create: record,
+          update: {
+            type: record.type,
+            unit: record.unit,
+            value: record.value,
+            startDate: record.startDate,
+            endDate: record.endDate,
+            sourceName: record.sourceName,
+            sourceVersion: record.sourceVersion,
+            deviceId: record.deviceId,
+            metadata: record.metadata,
+            syncedAt: new Date(),
+          },
+        })));
+
+        const syncedCount = created.count + dailyAggregates.length;
         await tx.syncLog.create({
           data: {
             userId,
-            recordsCount: created.count,
+            recordsCount: syncedCount,
             status: 'SUCCESS',
             startedAt,
             completedAt: new Date(),
           },
         });
 
-        return created;
+        return syncedCount;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown sync error';
@@ -89,9 +124,9 @@ export class HealthDataService implements IHealthDataService {
       throw error;
     }
 
-    logger.info({ userId, count: result.count }, 'Bulk health data sync completed');
+    logger.info({ userId, count: synced }, 'Bulk health data sync completed');
 
-    return { synced: result.count };
+    return { synced };
   }
 
   // Get My Health Data - .NET: async Task<PagedResponse<HealthDataResponse>> GetMyDataAsync(string userId, QueryHealthData query)

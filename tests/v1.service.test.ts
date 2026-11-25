@@ -130,6 +130,159 @@ describe('V1 backend services', () => {
     expect(createSyncLog).toHaveBeenCalledOnce();
   });
 
+  it('updates daily step aggregates by user and sample id while keeping raw samples idempotent', async () => {
+    const records = new Map<string, Record<string, any>>();
+    const createMany = vi.fn(async ({ data }: { data: Array<Record<string, any>> }) => {
+      let count = 0;
+      for (const record of data) {
+        const key = `${record.userId}:${record.sourceSampleId}`;
+        if (records.has(key)) continue;
+        records.set(key, record);
+        count += 1;
+      }
+      return { count };
+    });
+    const upsert = vi.fn(async ({ where, create, update }: {
+      where: { userId_sourceSampleId: { userId: string; sourceSampleId: string } };
+      create: Record<string, any>;
+      update: Record<string, any>;
+    }) => {
+      const { userId, sourceSampleId } = where.userId_sourceSampleId;
+      const key = `${userId}:${sourceSampleId}`;
+      const existing = records.get(key);
+      records.set(key, existing ? { ...existing, ...update } : create);
+      return records.get(key);
+    });
+    const createSyncLog = vi.fn().mockResolvedValue({});
+    vi.spyOn(healthDataRepository, 'transaction').mockImplementation((callback) => callback({
+      healthData: { createMany, upsert },
+      syncLog: { create: createSyncLog },
+    } as never));
+
+    const service = new HealthDataService();
+    const dailyAggregate = (value: number) => ({
+      type: 'STEPS' as const,
+      unit: 'COUNT' as const,
+      value,
+      startDate: '2026-11-25T00:00:00.000Z',
+      endDate: '2026-11-26T00:00:00.000Z',
+      sourceName: 'HealthKit daily aggregate',
+      sourceVersion: '1',
+      deviceId: 'watch-1',
+      sourceSampleId: 'healthkit-daily-steps-2026-11-25',
+      metadata: { aggregation: 'daily' },
+    });
+
+    const rawSample = {
+      type: 'STEPS' as const,
+      unit: 'COUNT' as const,
+      value: 50,
+      startDate: '2026-11-24T08:00:00.000Z',
+      endDate: '2026-11-24T08:01:00.000Z',
+      sourceName: 'HealthKit',
+      sourceSampleId: 'healthkit-raw-step-sample',
+    };
+
+    vi.spyOn(userRepository, 'findWithPreferences').mockResolvedValue({
+      id: 'user-a',
+      preferences: { timezone: 'UTC' },
+    } as never);
+    vi.spyOn(userPreferencesRepository, 'findByUserId').mockResolvedValue({
+      timezone: 'UTC',
+    } as never);
+    vi.spyOn(healthDataRepository, 'getAggregateStats').mockImplementation(async (
+      requestedUserId, type, startDate, endDate
+    ) => {
+      const matching = [...records.values()].filter((record) =>
+        record.userId === requestedUserId
+        && record.type === type
+        && record.startDate >= startDate
+        && record.startDate < endDate
+      );
+      const values = matching.map((record) => record.value);
+      return {
+        _sum: { value: values.length ? values.reduce((sum, value) => sum + value, 0) : null },
+        _avg: { value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null },
+        _max: { value: values.length ? Math.max(...values) : null },
+        _min: { value: values.length ? Math.min(...values) : null },
+      };
+    });
+    vi.spyOn(healthDataRepository, 'getLatestSync').mockResolvedValue(null);
+    vi.spyOn(pairingRepository, 'findAcceptedByUser').mockResolvedValue([{
+      id: 'pairing-id',
+      user1Id: 'user-a',
+      user2Id: 'user-b',
+      status: 'ACCEPTED',
+      sharingScope: 'ACTIVITY_ONLY',
+      customTypes: [],
+      user1: { id: 'user-a', name: 'A', avatarUrl: null },
+      user2: { id: 'user-b', name: 'B', avatarUrl: null },
+    }] as never);
+    vi.spyOn(pairingRepository, 'findBetweenUsers').mockResolvedValue({
+      id: 'pairing-id',
+      user1Id: 'user-a',
+      user2Id: 'user-b',
+      status: 'ACCEPTED',
+      sharingScope: 'ACTIVITY_ONLY',
+      customTypes: [],
+    } as never);
+    vi.spyOn(goalService, 'listForUser').mockResolvedValue([]);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-25T12:00:00.000Z'));
+    try {
+      expect(await service.bulkCreate('user-a', { data: [dailyAggregate(299)] })).toEqual({ synced: 1 });
+      expect(records.size).toBe(1);
+
+      const dashboard = await new DashboardService().getDashboard('user-a');
+      expect(dashboard.summary.steps).toBe(299);
+
+      expect(await service.bulkCreate('user-a', { data: [{
+        ...dailyAggregate(757),
+        startDate: '2026-11-25T01:00:00.000Z',
+        endDate: '2026-11-25T23:59:00.000Z',
+        sourceVersion: '2',
+        deviceId: 'watch-2',
+        metadata: { aggregation: 'updated-daily' },
+      }] })).toEqual({ synced: 1 });
+      expect(records.size).toBe(1);
+      expect(records.get('user-a:healthkit-daily-steps-2026-11-25')).toMatchObject({
+        value: 757,
+        unit: 'COUNT',
+        startDate: new Date('2026-11-25T01:00:00.000Z'),
+        endDate: new Date('2026-11-25T23:59:00.000Z'),
+        sourceVersion: '2',
+        deviceId: 'watch-2',
+        metadata: { aggregation: 'updated-daily' },
+      });
+
+      const updatedDashboard = await new DashboardService().getDashboard('user-a');
+      expect(updatedDashboard.summary.steps).toBe(757);
+
+      expect(await service.bulkCreate('user-b', { data: [dailyAggregate(111)] })).toEqual({ synced: 1 });
+      expect(records.size).toBe(2);
+      expect(records.get('user-a:healthkit-daily-steps-2026-11-25')).toMatchObject({ value: 757 });
+      expect(records.get('user-b:healthkit-daily-steps-2026-11-25')).toMatchObject({ value: 111 });
+
+      const dashboardWithPartner = await new DashboardService().getDashboard('user-a');
+      expect(dashboardWithPartner.summary.steps).toBe(757);
+      expect(dashboardWithPartner.partner?.summary.steps).toBe(111);
+      const partnerSummary = await service.getPartnerSummary('user-b', 'user-a');
+      expect(partnerSummary.summary.metrics).toEqual([
+        expect.objectContaining({ type: 'STEPS', _sum: { value: 757 } }),
+      ]);
+
+      expect(await service.bulkCreate('user-a', { data: [rawSample] })).toEqual({ synced: 1 });
+      expect(await service.bulkCreate('user-a', { data: [{ ...rawSample, value: 75 }] })).toEqual({ synced: 0 });
+      expect(records.size).toBe(3);
+      expect(records.get('user-a:healthkit-raw-step-sample')).toMatchObject({ value: 50 });
+      expect(upsert).toHaveBeenCalledTimes(3);
+      expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('records a failed sync and preserves the original health sync error', async () => {
     const failure = new Error('sync failed');
     vi.spyOn(healthDataRepository, 'transaction').mockRejectedValue(failure);
