@@ -245,4 +245,32 @@ describe('HealthDataRepository bulk sync', () => {
       new Date('2026-11-26T00:00:00.000Z')
     )).resolves.toMatchObject({ _sum: { value: 1103 } });
   });
+
+  it('includes a daily aggregate overlapping the requested day when its UTC start is before the day', async () => {
+    const dateStart = new Date('2026-11-25T00:00:00.000Z');
+    const dateEnd = new Date('2026-11-26T00:00:00.000Z');
+    const findMany = vi.fn().mockResolvedValue([{
+      type: 'STEPS',
+      value: 1103,
+      startDate: new Date('2026-11-24T21:00:00.000Z'),
+      endDate: new Date('2026-11-25T21:00:00.000Z'),
+      sourceSampleId: 'healthkit-daily-steps-1795554000',
+    }]);
+    const repository = new HealthDataRepository();
+    Object.defineProperty(repository, 'model', { value: { findMany } });
+
+    await expect(repository.getAggregateStats('user-a', 'STEPS', dateStart, dateEnd))
+      .resolves.toMatchObject({ _sum: { value: 1103 } });
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          expect.objectContaining({
+            sourceSampleId: { startsWith: 'healthkit-daily-' },
+            startDate: { lt: dateEnd },
+            endDate: { gt: dateStart },
+          }),
+        ]),
+      }),
+    }));
+  });
 });

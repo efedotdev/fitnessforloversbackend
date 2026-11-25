@@ -274,11 +274,7 @@ export class HealthDataRepository extends BaseRepository<
     startDate: Date,
     endDate: Date
   ) {
-    const records = await this.getRecordsForAggregation({
-      userId,
-      type,
-      startDate: { gte: startDate, lt: endDate },
-    });
+    const records = await this.getRecordsForAggregation(userId, type, startDate, endDate);
     const values = getAggregationValues(records);
     const sum = values.reduce((total, value) => total + value, 0);
     return {
@@ -292,21 +288,46 @@ export class HealthDataRepository extends BaseRepository<
   async sumStepsForUsersBetween(userIds: string[], startDate: Date, endDate: Date): Promise<number> {
     if (userIds.length === 0) return 0;
     const values = await Promise.all(userIds.map(async (userId) => {
-      const records = await this.getRecordsForAggregation({
-        userId,
-        type: 'STEPS',
-        startDate: { gte: startDate },
-        endDate: { lte: endDate },
-      });
+      const records = await this.getRecordsForAggregation(userId, 'STEPS', startDate, endDate, true);
       return getAggregationValues(records).reduce((sum, value) => sum + value, 0);
     }));
     return values.reduce((sum, value) => sum + value, 0);
   }
 
-  private getRecordsForAggregation(where: Prisma.HealthDataWhereInput) {
-    return this.model.findMany({
-      where,
+  private async getRecordsForAggregation(
+    userId: string,
+    type: HealthDataType,
+    startDate: Date,
+    endDate: Date,
+    endInclusive = false
+  ) {
+    const rawRange = endInclusive
+      ? { startDate: { gte: startDate }, endDate: { lte: endDate } }
+      : { startDate: { gte: startDate, lt: endDate } };
+    const records = await this.model.findMany({
+      where: {
+        userId,
+        type,
+        OR: [
+          rawRange,
+          {
+            sourceSampleId: { startsWith: 'healthkit-daily-' },
+            startDate: { lt: endDate },
+            endDate: { gt: startDate },
+          },
+        ],
+      },
       select: { type: true, value: true, startDate: true, endDate: true, sourceSampleId: true },
+    });
+
+    return records.filter((record) => {
+      const matchesRawRange = endInclusive
+        ? record.startDate >= startDate && record.endDate <= endDate
+        : record.startDate >= startDate && record.startDate < endDate;
+      const overlapsAsDailyAggregate = isDailyHealthKitAggregate(record)
+        && record.startDate < endDate
+        && record.endDate > startDate;
+      return matchesRawRange || overlapsAsDailyAggregate;
     });
   }
 
