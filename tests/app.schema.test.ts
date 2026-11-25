@@ -271,7 +271,14 @@ describe('Zod route schema compatibility', () => {
 
   it('validates bulk health data before invoking the service', async () => {
     const bulkCreate = vi.spyOn(services.healthDataService, 'bulkCreate')
-      .mockResolvedValue({ synced: 1 });
+      .mockResolvedValue({
+        synced: 1,
+        receivedCount: 1,
+        createdCount: 1,
+        updatedCount: 0,
+        skippedCount: 0,
+        rejectedCount: 0,
+      });
     const unauthorized = await app.inject({
       method: 'POST',
       url: '/health-data/bulk',
@@ -295,7 +302,14 @@ describe('Zod route schema compatibility', () => {
     });
 
     expect(valid.statusCode, valid.body).toBe(200);
-    expect(valid.json().data.synced).toBe(1);
+    expect(valid.json().data).toEqual({
+      synced: 1,
+      receivedCount: 1,
+      createdCount: 1,
+      updatedCount: 0,
+      skippedCount: 0,
+      rejectedCount: 0,
+    });
 
     const invalid = await app.inject({
       method: 'POST',
