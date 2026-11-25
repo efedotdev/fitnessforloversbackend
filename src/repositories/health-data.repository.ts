@@ -1,7 +1,7 @@
 import { Prisma, HealthData, HealthDataType } from '@prisma/client';
 import { BaseRepository } from './base.repository';
 import { prisma } from '../config/database';
-import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { subDays, startOfDay, addDays } from 'date-fns';
 
 // ============================================
 // HEALTH DATA REPOSITORY - .NET: IHealthDataRepository
@@ -133,12 +133,12 @@ export class HealthDataRepository extends BaseRepository<
     types: HealthDataType[]
   ): Promise<Record<string, any>> {
     const start = startOfDay(date);
-    const end = endOfDay(date);
+    const end = startOfDay(addDays(date, 1));
 
     const results = await Promise.all(
       types.map(async (type) => {
         const aggregate = await this.model.aggregate({
-          where: { userId, type, startDate: { gte: start, lte: end } },
+          where: { userId, type, startDate: { gte: start, lt: end } },
           _sum: { value: true },
           _avg: { value: true },
           _max: { value: true },
@@ -158,7 +158,7 @@ export class HealthDataRepository extends BaseRepository<
     endDate: Date
   ) {
     return this.model.aggregate({
-      where: { userId, type, startDate: { gte: startDate, lte: endDate } },
+      where: { userId, type, startDate: { gte: startDate, lt: endDate } },
       _sum: { value: true },
       _avg: { value: true },
       _min: { value: true },

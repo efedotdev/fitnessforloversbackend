@@ -14,8 +14,9 @@ import {
   SharingScopeError,
 } from '../exceptions';
 import { pairingService, PairingService } from './pairing.service';
+import { getTimeZoneDayRange } from './dashboard.service';
 import { logger } from '../config/logger';
-import { subDays, startOfDay, endOfDay, format } from 'date-fns';
+import { subDays, format } from 'date-fns';
 import { HealthDataType, SharingScope } from '@prisma/client';
 
 // ============================================
@@ -117,20 +118,20 @@ export class HealthDataService implements IHealthDataService {
 
   // Get Daily Summary (Dashboard) - .NET: async Task<DailySummary> GetDailySummaryAsync(string userId)
   async getDailySummary(userId: string): Promise<DailySummary> {
-    const today = new Date();
-    const start = startOfDay(today);
-    const end = endOfDay(today);
+    const preferences = await userPreferencesRepository.findByUserId(userId);
+    const range = getTimeZoneDayRange(new Date(), preferences?.timezone ?? 'UTC');
+    const endInclusive = new Date(range.end.getTime() - 1);
 
     const [steps, activeEnergy, exerciseMinutes, heartRate, workouts] = await Promise.all([
-      healthDataRepository.getAggregateStats(userId, 'STEPS', start, end),
-      healthDataRepository.getAggregateStats(userId, 'ACTIVE_ENERGY', start, end),
-      healthDataRepository.getAggregateStats(userId, 'EXERCISE_MINUTES', start, end),
-      healthDataRepository.findByUserAndDateRange(userId, start, end, 'HEART_RATE', 1, 0),
-      healthDataRepository.findByUserAndDateRange(userId, start, end, 'WORKOUT', 100, 0),
+      healthDataRepository.getAggregateStats(userId, 'STEPS', range.start, range.end),
+      healthDataRepository.getAggregateStats(userId, 'ACTIVE_ENERGY', range.start, range.end),
+      healthDataRepository.getAggregateStats(userId, 'EXERCISE_MINUTES', range.start, range.end),
+      healthDataRepository.findByUserAndDateRange(userId, range.start, endInclusive, 'HEART_RATE', 1, 0),
+      healthDataRepository.findByUserAndDateRange(userId, range.start, endInclusive, 'WORKOUT', 100, 0),
     ]);
 
     return {
-      date: format(today, 'yyyy-MM-dd'),
+      date: range.date,
       steps: steps._sum.value ?? 0,
       activeEnergy: activeEnergy._sum.value ?? 0,
       exerciseMinutes: exerciseMinutes._sum.value ?? 0,
@@ -184,20 +185,19 @@ export class HealthDataService implements IHealthDataService {
     }
 
     const allowedTypes = PairingService.getAllowedTypes(pairing.sharingScope, pairing.customTypes);
-    const today = new Date();
-    const start = startOfDay(today);
-    const end = endOfDay(today);
+    const preferences = await userPreferencesRepository.findByUserId(partnerId);
+    const range = getTimeZoneDayRange(new Date(), preferences?.timezone ?? 'UTC');
 
     const metrics = await Promise.all(
       allowedTypes.map(async (type: HealthDataType) => {
-        const result = await healthDataRepository.getAggregateStats(partnerId, type, start, end);
+        const result = await healthDataRepository.getAggregateStats(partnerId, type, range.start, range.end);
         return { type, ...result };
       })
     );
 
     return {
       summary: {
-        date: format(today, 'yyyy-MM-dd'),
+        date: range.date,
         metrics: metrics.filter((m: any) => m._sum.value != null),
         sharingScope: pairing.sharingScope,
       },

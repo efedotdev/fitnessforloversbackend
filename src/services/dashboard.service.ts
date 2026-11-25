@@ -73,7 +73,7 @@ export function getTimeZoneDayRange(date: Date, timeZone: string) {
   return {
     date: `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`,
     start,
-    end: new Date(end.getTime() - 1),
+    end,
   };
 }
 
