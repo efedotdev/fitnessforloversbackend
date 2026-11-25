@@ -8,6 +8,7 @@ describe('V1 backend services', () => {
   let getTimeZoneDayRange: typeof import('../src/services/dashboard.service').getTimeZoneDayRange;
   let pairingRepository: typeof import('../src/repositories').pairingRepository;
   let userRepository: typeof import('../src/repositories').userRepository;
+  let userPreferencesRepository: typeof import('../src/repositories').userPreferencesRepository;
   let healthDataRepository: typeof import('../src/repositories').healthDataRepository;
   let goalRepository: typeof import('../src/repositories').goalRepository;
   let goalService: typeof import('../src/services').goalService;
@@ -22,7 +23,7 @@ describe('V1 backend services', () => {
     ({ HealthDataService } = await import('../src/services/health-data.service'));
     ({ GoalService } = await import('../src/services/goal.service'));
     ({ DashboardService, getTimeZoneDayRange } = await import('../src/services/dashboard.service'));
-    ({ pairingRepository, userRepository, healthDataRepository, goalRepository } = await import('../src/repositories'));
+    ({ pairingRepository, userRepository, userPreferencesRepository, healthDataRepository, goalRepository } = await import('../src/repositories'));
     ({ goalService } = await import('../src/services'));
   });
 
@@ -276,6 +277,38 @@ describe('V1 backend services', () => {
     const range = getTimeZoneDayRange(date, 'America/Los_Angeles');
     expect(range.date).toBe('2026-03-08');
     expect(range.start.toISOString()).toBe('2026-03-08T08:00:00.000Z');
-    expect(range.end.toISOString()).toBe('2026-03-09T06:59:59.999Z');
+    expect(range.end.toISOString()).toBe('2026-03-09T07:00:00.000Z');
+  });
+
+  it('uses the user timezone and an exclusive next-day boundary for daily summaries', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-08T12:00:00.000Z'));
+    vi.spyOn(userPreferencesRepository, 'findByUserId').mockResolvedValue({
+      timezone: 'America/Los_Angeles',
+    } as never);
+    const aggregate = vi.spyOn(healthDataRepository, 'getAggregateStats').mockResolvedValue({
+      _sum: { value: 0 },
+      _avg: { value: 0 },
+      _min: { value: 0 },
+      _max: { value: 0 },
+    });
+    vi.spyOn(healthDataRepository, 'findByUserAndDateRange').mockResolvedValue({
+      data: [],
+      total: 0,
+    } as never);
+
+    try {
+      const result = await new HealthDataService().getDailySummary('user-a');
+
+      expect(result.date).toBe('2026-03-08');
+      expect(aggregate).toHaveBeenCalledWith(
+        'user-a',
+        'STEPS',
+        new Date('2026-03-08T08:00:00.000Z'),
+        new Date('2026-03-09T07:00:00.000Z')
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
