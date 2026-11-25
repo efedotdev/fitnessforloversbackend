@@ -1,4 +1,5 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId } from './base.controller';
 import { healthDataService } from '../services';
 import {
@@ -6,9 +7,15 @@ import {
   BulkHealthDataRequest,
   QueryHealthData,
   PartnerHealthDataQuery,
+  bulkHealthDataRequestSchema,
   bulkSyncResponseSchema,
+  createHealthDataRequestSchema,
   createHealthDataResponseSchema,
   healthDataListResponseSchema,
+  idParamSchema,
+  partnerHealthDataRequestQuerySchema,
+  queryHealthDataSchema,
+  partnerIdParamsSchema,
   partnerHealthDataResponseSchema,
   summaryResponseSchema,
   partnerSummaryResponseSchema,
@@ -86,29 +93,14 @@ export class HealthDataController extends BaseController {
 }
 
 // Register routes
-export function registerHealthDataRoutes(app: FastifyInstance) {
+export function registerHealthDataRoutes(app: ZodFastifyInstance) {
   const controller = new HealthDataController();
 
   app.post('/health-data', {
     schema: {
       tags: ['Health data'],
       summary: 'Create a health data sample',
-      body: {
-        type: 'object',
-        required: ['type', 'unit', 'value', 'startDate', 'endDate'],
-        properties: {
-          type: { type: 'string', enum: ['STEPS', 'HEART_RATE', 'ACTIVE_ENERGY', 'BASAL_ENERGY', 'DISTANCE_WALKING_RUNNING', 'FLIGHTS_CLIMBED', 'EXERCISE_MINUTES', 'STAND_HOURS', 'SLEEP_ANALYSIS', 'WORKOUT', 'BODY_MASS', 'BODY_FAT_PERCENTAGE', 'HEART_RATE_VARIABILITY', 'RESTING_HEART_RATE', 'VO2_MAX', 'BLOOD_PRESSURE_SYSTOLIC', 'BLOOD_PRESSURE_DIASTOLIC', 'BLOOD_GLUCOSE', 'OXYGEN_SATURATION', 'RESPIRATORY_RATE', 'BODY_TEMPERATURE', 'MENSTRUAL_FLOW', 'CUSTOM'] },
-          unit: { type: 'string', enum: ['COUNT', 'BPM', 'KCAL', 'KM', 'METERS', 'MINUTES', 'HOURS', 'PERCENTAGE', 'KG', 'MMHG', 'MG_DL', 'ML_MIN', 'CELSIUS', 'SECONDS'] },
-          value: { type: 'number' },
-          startDate: { type: 'string', format: 'date-time' },
-          endDate: { type: 'string', format: 'date-time' },
-          sourceName: { type: 'string' },
-          sourceVersion: { type: 'string' },
-          deviceId: { type: 'string' },
-          sourceSampleId: { type: 'string', minLength: 1, maxLength: 255 },
-          metadata: { type: 'object' },
-        },
-      },
+      body: createHealthDataRequestSchema,
       response: { 201: createHealthDataResponseSchema },
     },
   }, controller.create.bind(controller));
@@ -117,34 +109,8 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Health data'],
       summary: 'Idempotently sync HealthKit samples in bulk',
-      body: {
-        type: 'object',
-        required: ['data'],
-        properties: {
-          data: {
-            type: 'array',
-            minItems: 1,
-            maxItems: 1000,
-            items: {
-              type: 'object',
-              required: ['type', 'unit', 'value', 'startDate', 'endDate'],
-              properties: {
-                type: { type: 'string', enum: ['STEPS', 'HEART_RATE', 'ACTIVE_ENERGY', 'BASAL_ENERGY', 'DISTANCE_WALKING_RUNNING', 'FLIGHTS_CLIMBED', 'EXERCISE_MINUTES', 'STAND_HOURS', 'SLEEP_ANALYSIS', 'WORKOUT', 'BODY_MASS', 'BODY_FAT_PERCENTAGE', 'HEART_RATE_VARIABILITY', 'RESTING_HEART_RATE', 'VO2_MAX', 'BLOOD_PRESSURE_SYSTOLIC', 'BLOOD_PRESSURE_DIASTOLIC', 'BLOOD_GLUCOSE', 'OXYGEN_SATURATION', 'RESPIRATORY_RATE', 'BODY_TEMPERATURE', 'MENSTRUAL_FLOW', 'CUSTOM'] },
-                unit: { type: 'string', enum: ['COUNT', 'BPM', 'KCAL', 'KM', 'METERS', 'MINUTES', 'HOURS', 'PERCENTAGE', 'KG', 'MMHG', 'MG_DL', 'ML_MIN', 'CELSIUS', 'SECONDS'] },
-                value: { type: 'number' },
-                startDate: { type: 'string', format: 'date-time' },
-                endDate: { type: 'string', format: 'date-time' },
-                sourceName: { type: 'string' },
-                sourceVersion: { type: 'string' },
-                deviceId: { type: 'string' },
-                sourceSampleId: { type: 'string', minLength: 1, maxLength: 255 },
-                metadata: { type: 'object' },
-              },
-            },
-            response: { 200: bulkSyncResponseSchema },
-          },
-        },
-      },
+      body: bulkHealthDataRequestSchema,
+      response: { 200: bulkSyncResponseSchema },
     },
   }, controller.bulkCreate.bind(controller));
 
@@ -152,17 +118,7 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Health data'],
       summary: 'List the authenticated user health data',
-      querystring: {
-        type: 'object',
-        properties: {
-          type: { type: 'string', enum: ['STEPS', 'HEART_RATE', 'ACTIVE_ENERGY', 'BASAL_ENERGY', 'DISTANCE_WALKING_RUNNING', 'FLIGHTS_CLIMBED', 'EXERCISE_MINUTES', 'STAND_HOURS', 'SLEEP_ANALYSIS', 'WORKOUT', 'BODY_MASS', 'BODY_FAT_PERCENTAGE', 'HEART_RATE_VARIABILITY', 'RESTING_HEART_RATE', 'VO2_MAX', 'BLOOD_PRESSURE_SYSTOLIC', 'BLOOD_PRESSURE_DIASTOLIC', 'BLOOD_GLUCOSE', 'OXYGEN_SATURATION', 'RESPIRATORY_RATE', 'BODY_TEMPERATURE', 'MENSTRUAL_FLOW', 'CUSTOM'] },
-          startDate: { type: 'string', format: 'date-time' },
-          endDate: { type: 'string', format: 'date-time' },
-          limit: { type: 'integer', minimum: 1, maximum: 1000, default: 100 },
-          offset: { type: 'integer', minimum: 0, default: 0 },
-          aggregate: { type: 'string', enum: ['raw', 'hourly', 'daily', 'weekly'] },
-        },
-      },
+      querystring: queryHealthDataSchema,
       response: { 200: healthDataListResponseSchema },
     },
   }, controller.getMyData.bind(controller));
@@ -179,17 +135,8 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Health data'],
       summary: 'List a partner health data shared under the accepted pairing scope',
-      params: { type: 'object', required: ['partnerId'], properties: { partnerId: { type: 'string', format: 'cuid' } } },
-      querystring: {
-        type: 'object',
-        properties: {
-          type: { type: 'string', enum: ['STEPS', 'HEART_RATE', 'ACTIVE_ENERGY', 'BASAL_ENERGY', 'DISTANCE_WALKING_RUNNING', 'FLIGHTS_CLIMBED', 'EXERCISE_MINUTES', 'STAND_HOURS', 'SLEEP_ANALYSIS', 'WORKOUT', 'BODY_MASS', 'BODY_FAT_PERCENTAGE', 'HEART_RATE_VARIABILITY', 'RESTING_HEART_RATE', 'VO2_MAX', 'BLOOD_PRESSURE_SYSTOLIC', 'BLOOD_PRESSURE_DIASTOLIC', 'BLOOD_GLUCOSE', 'OXYGEN_SATURATION', 'RESPIRATORY_RATE', 'BODY_TEMPERATURE', 'MENSTRUAL_FLOW', 'CUSTOM'] },
-          startDate: { type: 'string', format: 'date-time' },
-          endDate: { type: 'string', format: 'date-time' },
-          limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 },
-          aggregate: { type: 'string', enum: ['raw', 'hourly', 'daily', 'weekly'] },
-        },
-      },
+      params: partnerIdParamsSchema,
+      querystring: partnerHealthDataRequestQuerySchema,
       response: { 200: partnerHealthDataResponseSchema },
     },
   }, controller.getPartnerData.bind(controller));
@@ -198,7 +145,7 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Health data'],
       summary: 'Get a partner daily summary shared under the accepted pairing scope',
-      params: { type: 'object', required: ['partnerId'], properties: { partnerId: { type: 'string', format: 'cuid' } } },
+      params: partnerIdParamsSchema,
       response: { 200: partnerSummaryResponseSchema },
     },
   }, controller.getPartnerSummary.bind(controller));
@@ -207,7 +154,7 @@ export function registerHealthDataRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Health data'],
       summary: 'Delete an owned health data sample',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'cuid' } } },
+      params: idParamSchema,
       response: { 200: deleteHealthDataResponseSchema },
     },
   }, controller.delete.bind(controller));

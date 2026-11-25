@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance, FastifyServerOptions } from 'fastify';
+import Fastify, { FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -11,10 +11,12 @@ import { logger } from './config/logger';
 import { connectDatabase } from './config/database';
 import { errorHandler } from './middleware/error-handler';
 import { authMiddleware } from './middleware/auth';
+import { ZodFastifyInstance } from './types/fastify';
 import {
-  createJsonSchemaTransform,
+  jsonSchemaTransform,
   serializerCompiler,
   validatorCompiler,
+  ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 
 // ============================================
@@ -41,59 +43,31 @@ const serverOptions: FastifyServerOptions = {
   },
 };
 
-const transformZodSchema = createJsonSchemaTransform({
-  skipList: ['/documentation/', '/documentation/json', '/documentation/yaml'],
-});
-
-function openApiTransform(input: Parameters<typeof transformZodSchema>[0]) {
-  const { url } = input;
-  const schema = input.schema ?? {};
-  const isZodSchema = (value: unknown) =>
-    Boolean(value && typeof value === 'object' && 'safeParse' in value);
-  const zodSchema = { ...schema } as typeof schema & Record<string, unknown>;
-
-  for (const property of ['body', 'params', 'querystring', 'headers']) {
-    if (!isZodSchema(zodSchema[property])) delete zodSchema[property];
-  }
-
-  const originalResponses = schema['response'] as Record<string, unknown> | undefined;
-  const zodResponses = Object.fromEntries(
-    Object.entries(originalResponses ?? {}).filter(([, value]) => isZodSchema(value))
-  );
-  if (Object.keys(zodResponses).length > 0) {
-    zodSchema['response'] = zodResponses;
-  } else {
-    delete zodSchema['response'];
-  }
-
-  const hasZodSchema = [
-    zodSchema['body'],
-    zodSchema['params'],
-    zodSchema['querystring'],
-    zodSchema['headers'],
-    ...Object.values(zodResponses),
-  ].some(isZodSchema);
-  if (!hasZodSchema) return { schema, url };
-  try {
-    const transformed = transformZodSchema({ schema: zodSchema, url });
-    const merged = { ...schema, ...transformed.schema } as typeof schema & Record<string, unknown>;
-    if (originalResponses) {
-      merged['response'] = {
-        ...originalResponses,
-        ...(transformed.schema['response'] as Record<string, unknown> | undefined),
-      };
-    }
-    return { schema: merged, url };
-  } catch (error) {
-    throw new Error(`Failed to generate OpenAPI schema for ${url}: ${String(error)}`);
-  }
-}
-
-export async function buildApp(options: { connectToDatabase?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify(serverOptions);
+export async function buildApp(options: { connectToDatabase?: boolean } = {}): Promise<ZodFastifyInstance> {
+  const app = Fastify(serverOptions).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  if (config.NODE_ENV === 'test') {
+    app.addHook('onRoute', (route) => {
+      const schema = route.schema;
+      if (!schema) return;
+
+      for (const part of ['body', 'params', 'querystring', 'headers'] as const) {
+        const value = schema[part];
+        if (value !== undefined && !isZodSchema(value)) {
+          throw new TypeError(`${route.method} ${route.url} has a non-Zod ${part} schema`);
+        }
+      }
+
+      for (const [statusCode, responseSchema] of Object.entries(schema.response ?? {})) {
+        if (!isZodSchema(responseSchema)) {
+          throw new TypeError(`${route.method} ${route.url} has a non-Zod response schema for ${statusCode}`);
+        }
+      }
+    });
+  }
 
   // Security plugins
   await app.register(helmet, {
@@ -151,9 +125,11 @@ export async function buildApp(options: { connectToDatabase?: boolean } = {}): P
         { name: 'Health data' },
         { name: 'Goals' },
         { name: 'Dashboard' },
+        { name: 'Devices' },
+        { name: 'Notifications' },
       ],
     },
-    transform: openApiTransform,
+    transform: jsonSchemaTransform,
   });
   await app.register(swaggerUi, { routePrefix: '/documentation' });
 
@@ -205,6 +181,17 @@ export async function buildApp(options: { connectToDatabase?: boolean } = {}): P
   // Connect database
   if (options.connectToDatabase !== false) {
     await connectDatabase();
+  }
+
+  function isZodSchema(value: unknown): value is { parse: (data: unknown) => unknown } {
+    return Boolean(
+      value &&
+      typeof value === 'object' &&
+      'parse' in value &&
+      typeof value.parse === 'function' &&
+      'safeParse' in value &&
+      typeof value.safeParse === 'function'
+    );
   }
 
   return app;

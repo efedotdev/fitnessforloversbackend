@@ -21,8 +21,12 @@ const PUBLIC_PATHS = [
 ];
 
 export async function authMiddleware(request: FastifyRequest, reply: FastifyReply) {
-  // Skip auth for public paths
-  if (PUBLIC_PATHS.some((path) => request.url.startsWith(path))) {
+  const requestPath = request.url.split('?')[0] ?? request.url;
+  const isPublicPath = PUBLIC_PATHS.some((path) =>
+    requestPath === path || requestPath.startsWith(`${path}/`)
+  );
+
+  if (isPublicPath) {
     return;
   }
 

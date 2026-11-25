@@ -1,7 +1,18 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId } from './base.controller';
 import { deviceService } from '../services';
-import { RegisterDeviceRequest, UpdateDeviceRequest } from '../dtos';
+import {
+  RegisterDeviceRequest,
+  UpdateDeviceRequest,
+  deviceIdParamsSchema,
+  deleteDeviceResponseSchema,
+  deviceListResponseSchema,
+  deviceSingleResponseSchema,
+  registerDeviceResponseSchema,
+  registerDeviceRequestSchema,
+  updateDeviceRequestSchema,
+} from '../dtos';
 
 // ============================================
 // DEVICE CONTROLLER - .NET: DeviceController
@@ -56,52 +67,42 @@ export class DeviceController extends BaseController {
 }
 
 // Register routes
-export function registerDeviceRoutes(app: FastifyInstance) {
+export function registerDeviceRoutes(app: ZodFastifyInstance) {
   const controller = new DeviceController();
 
   app.post('/devices', {
     schema: {
-      body: {
-        type: 'object',
-        required: ['deviceId'],
-        properties: {
-          deviceId: { type: 'string', minLength: 1 },
-          platform: { type: 'string', enum: ['IOS', 'WATCHOS', 'ANDROID', 'WEB'], default: 'IOS' },
-          model: { type: 'string' },
-          osVersion: { type: 'string' },
-          appVersion: { type: 'string' },
-          pushToken: { type: 'string' },
-        },
-      },
+      tags: ['Devices'],
+      body: registerDeviceRequestSchema,
+      response: { 201: registerDeviceResponseSchema },
     },
   }, controller.register.bind(controller));
 
-  app.get('/devices', controller.getMyDevices.bind(controller));
+  app.get('/devices', {
+    schema: {
+      tags: ['Devices'],
+      response: { 200: deviceListResponseSchema },
+    },
+  }, controller.getMyDevices.bind(controller));
   app.get('/devices/:deviceId', {
     schema: {
-      params: { type: 'object', required: ['deviceId'], properties: { deviceId: { type: 'string' } } },
+      params: deviceIdParamsSchema,
+      response: { 200: deviceSingleResponseSchema },
     },
   }, controller.getDevice.bind(controller));
 
   app.patch('/devices/:deviceId', {
     schema: {
-      params: { type: 'object', required: ['deviceId'], properties: { deviceId: { type: 'string' } } },
-      body: {
-        type: 'object',
-        properties: {
-          model: { type: 'string' },
-          osVersion: { type: 'string' },
-          appVersion: { type: 'string' },
-          pushToken: { type: 'string' },
-          isActive: { type: 'boolean' },
-        },
-      },
+      params: deviceIdParamsSchema,
+      body: updateDeviceRequestSchema,
+      response: { 200: deviceSingleResponseSchema },
     },
   }, controller.updateDevice.bind(controller));
 
   app.delete('/devices/:deviceId', {
     schema: {
-      params: { type: 'object', required: ['deviceId'], properties: { deviceId: { type: 'string' } } },
+      params: deviceIdParamsSchema,
+      response: { 200: deleteDeviceResponseSchema },
     },
   }, controller.deleteDevice.bind(controller));
 }
