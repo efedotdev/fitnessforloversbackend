@@ -2,6 +2,8 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
+import { healthDataRepository } from '../repositories';
+import { healthDataService } from '../services';
 import { validate } from '../middleware/validation';
 import { getUser } from '../middleware/auth';
 import { subDays, startOfDay, endOfDay, format } from 'date-fns';
@@ -32,6 +34,7 @@ const createHealthDataSchema = z.object({
   sourceName: z.string().optional(),
   sourceVersion: z.string().optional(),
   deviceId: z.string().optional(),
+  sourceSampleId: z.string().min(1).max(255).optional(),
   metadata: z.record(z.any()).optional(),
 });
 
@@ -119,35 +122,8 @@ export async function healthDataRoutes(app: FastifyInstance) {
     const userPayload = getUser(request);
     const { data } = request.body as any;
 
-    const records = data.map((d: any) => ({
-      userId: userPayload.id,
-      ...d,
-      startDate: new Date(d.startDate),
-      endDate: new Date(d.endDate),
-    }));
-
-    const result = await prisma.$transaction(async (tx) => {
-      const created = await tx.healthData.createMany({
-        data: records,
-        skipDuplicates: true,
-      });
-
-      await tx.syncLog.create({
-        data: {
-          userId: userPayload.id,
-          recordsCount: created.count,
-          status: 'SUCCESS',
-          startedAt: new Date(),
-          completedAt: new Date(),
-        },
-      });
-
-      return created;
-    });
-
-    logger.info({ userId: userPayload.id, count: result.count }, 'Bulk health data sync completed');
-
-    return reply.send({ synced: result.count });
+    const result = await healthDataService.bulkCreate(userPayload.id, { data });
+    return reply.send(result);
   });
 
   // GET /health-data - Query own health data
@@ -198,18 +174,9 @@ export async function healthDataRoutes(app: FastifyInstance) {
     const endOfToday = endOfDay(today);
 
     const [steps, activeEnergy, exerciseMinutes, heartRate, workouts] = await Promise.all([
-      prisma.healthData.aggregate({
-        where: { userId: userPayload.id, type: 'STEPS', startDate: { gte: startOfToday, lte: endOfToday } },
-        _sum: { value: true },
-      }),
-      prisma.healthData.aggregate({
-        where: { userId: userPayload.id, type: 'ACTIVE_ENERGY', startDate: { gte: startOfToday, lte: endOfToday } },
-        _sum: { value: true },
-      }),
-      prisma.healthData.aggregate({
-        where: { userId: userPayload.id, type: 'EXERCISE_MINUTES', startDate: { gte: startOfToday, lte: endOfToday } },
-        _sum: { value: true },
-      }),
+      healthDataRepository.getAggregateStats(userPayload.id, 'STEPS', startOfToday, endOfToday),
+      healthDataRepository.getAggregateStats(userPayload.id, 'ACTIVE_ENERGY', startOfToday, endOfToday),
+      healthDataRepository.getAggregateStats(userPayload.id, 'EXERCISE_MINUTES', startOfToday, endOfToday),
       prisma.healthData.findMany({
         where: { userId: userPayload.id, type: 'HEART_RATE', startDate: { gte: startOfToday, lte: endOfToday } },
         orderBy: { startDate: 'desc' },
@@ -306,17 +273,12 @@ export async function healthDataRoutes(app: FastifyInstance) {
 
     const metrics = await Promise.all(
       allowedTypes.map(async (type) => {
-        const result = await prisma.healthData.aggregate({
-          where: {
-            userId: partnerId,
-            type: type as any,
-            startDate: { gte: startOfToday, lte: endOfToday },
-          },
-          _sum: { value: true },
-          _avg: { value: true },
-          _max: { value: true },
-          _min: { value: true },
-        });
+        const result = await healthDataRepository.getAggregateStats(
+          partnerId,
+          type as any,
+          startOfToday,
+          endOfToday
+        );
         return { type, ...result };
       })
     );

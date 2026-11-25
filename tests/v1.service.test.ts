@@ -101,10 +101,13 @@ describe('V1 backend services', () => {
   });
 
   it('uses the sample identifier and duplicate skipping for bulk health sync', async () => {
-    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const createBulk = vi.spyOn(healthDataRepository, 'createBulk').mockResolvedValue({
+      createdCount: 1,
+      updatedCount: 0,
+      skippedCount: 0,
+    });
     const createSyncLog = vi.fn().mockResolvedValue({});
     vi.spyOn(healthDataRepository, 'transaction').mockImplementation((callback) => callback({
-      healthData: { createMany },
       syncLog: { create: createSyncLog },
     } as never));
 
@@ -119,43 +122,50 @@ describe('V1 backend services', () => {
       }],
     });
 
-    expect(result).toEqual({ synced: 1 });
-    expect(createMany).toHaveBeenCalledWith(expect.objectContaining({
-      skipDuplicates: true,
-      data: [expect.objectContaining({
+    expect(result).toEqual({
+      synced: 1,
+      receivedCount: 1,
+      createdCount: 1,
+      updatedCount: 0,
+      skippedCount: 0,
+      rejectedCount: 0,
+    });
+    expect(createBulk).toHaveBeenCalledWith([expect.objectContaining({
         userId: 'user-a',
         sourceSampleId: 'healthkit-sample-id',
-      })],
+    })], expect.any(Object));
+    expect(createSyncLog).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ recordsCount: 1 }),
     }));
     expect(createSyncLog).toHaveBeenCalledOnce();
   });
 
   it('updates daily step aggregates by user and sample id while keeping raw samples idempotent', async () => {
     const records = new Map<string, Record<string, any>>();
-    const createMany = vi.fn(async ({ data }: { data: Array<Record<string, any>> }) => {
-      let count = 0;
+    const createBulk = vi.spyOn(healthDataRepository, 'createBulk').mockImplementation(async (data) => {
+      let createdCount = 0;
+      let updatedCount = 0;
+      let skippedCount = 0;
       for (const record of data) {
         const key = `${record.userId}:${record.sourceSampleId}`;
-        if (records.has(key)) continue;
-        records.set(key, record);
-        count += 1;
+        const existing = records.get(key);
+        if (record.sourceSampleId?.startsWith('healthkit-daily-')) {
+          records.set(key, existing
+            ? { ...existing, ...record, syncedAt: new Date() }
+            : { ...record, syncedAt: new Date() });
+          if (existing) updatedCount += 1;
+          else createdCount += 1;
+        } else if (existing) {
+          skippedCount += 1;
+        } else {
+          records.set(key, record);
+          createdCount += 1;
+        }
       }
-      return { count };
-    });
-    const upsert = vi.fn(async ({ where, create, update }: {
-      where: { userId_sourceSampleId: { userId: string; sourceSampleId: string } };
-      create: Record<string, any>;
-      update: Record<string, any>;
-    }) => {
-      const { userId, sourceSampleId } = where.userId_sourceSampleId;
-      const key = `${userId}:${sourceSampleId}`;
-      const existing = records.get(key);
-      records.set(key, existing ? { ...existing, ...update } : create);
-      return records.get(key);
+      return { createdCount, updatedCount, skippedCount };
     });
     const createSyncLog = vi.fn().mockResolvedValue({});
     vi.spyOn(healthDataRepository, 'transaction').mockImplementation((callback) => callback({
-      healthData: { createMany, upsert },
       syncLog: { create: createSyncLog },
     } as never));
 
@@ -180,7 +190,12 @@ describe('V1 backend services', () => {
       startDate: '2026-11-24T08:00:00.000Z',
       endDate: '2026-11-24T08:01:00.000Z',
       sourceName: 'HealthKit',
-      sourceSampleId: 'healthkit-raw-step-sample',
+      sourceSampleId: '00000000-0000-4000-8000-000000000001',
+    };
+    const secondRawSample = {
+      ...rawSample,
+      value: 75,
+      sourceSampleId: '00000000-0000-4000-8000-000000000002',
     };
 
     vi.spyOn(userRepository, 'findWithPreferences').mockResolvedValue({
@@ -199,7 +214,13 @@ describe('V1 backend services', () => {
         && record.startDate >= startDate
         && record.startDate < endDate
       );
-      const values = matching.map((record) => record.value);
+      const dailyDates = new Set(matching
+        .map((record) => record.sourceSampleId?.match(/^healthkit-daily-(?:steps|active-energy|distance)-(\d{4}-\d{2}-\d{2})$/)?.[1])
+        .filter((date): date is string => Boolean(date)));
+      const values = matching
+        .filter((record) => record.sourceSampleId?.startsWith('healthkit-daily-')
+          || !dailyDates.has(record.startDate.toISOString().slice(0, 10)))
+        .map((record) => record.value);
       return {
         _sum: { value: values.length ? values.reduce((sum, value) => sum + value, 0) : null },
         _avg: { value: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null },
@@ -231,7 +252,9 @@ describe('V1 backend services', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-25T12:00:00.000Z'));
     try {
-      expect(await service.bulkCreate('user-a', { data: [dailyAggregate(299)] })).toEqual({ synced: 1 });
+      expect(await service.bulkCreate('user-a', { data: [dailyAggregate(299)] })).toEqual({
+        synced: 1, receivedCount: 1, createdCount: 1, updatedCount: 0, skippedCount: 0, rejectedCount: 0,
+      });
       expect(records.size).toBe(1);
 
       const dashboard = await new DashboardService().getDashboard('user-a');
@@ -244,7 +267,9 @@ describe('V1 backend services', () => {
         sourceVersion: '2',
         deviceId: 'watch-2',
         metadata: { aggregation: 'updated-daily' },
-      }] })).toEqual({ synced: 1 });
+      }] })).toEqual({
+        synced: 1, receivedCount: 1, createdCount: 0, updatedCount: 1, skippedCount: 0, rejectedCount: 0,
+      });
       expect(records.size).toBe(1);
       expect(records.get('user-a:healthkit-daily-steps-2026-11-25')).toMatchObject({
         value: 757,
@@ -256,11 +281,25 @@ describe('V1 backend services', () => {
         metadata: { aggregation: 'updated-daily' },
       });
 
+      expect(await service.bulkCreate('user-a', { data: [dailyAggregate(757)] })).toEqual({
+        synced: 1, receivedCount: 1, createdCount: 0, updatedCount: 1, skippedCount: 0, rejectedCount: 0,
+      });
+      expect(records.size).toBe(1);
       const updatedDashboard = await new DashboardService().getDashboard('user-a');
       expect(updatedDashboard.summary.steps).toBe(757);
 
-      expect(await service.bulkCreate('user-b', { data: [dailyAggregate(111)] })).toEqual({ synced: 1 });
-      expect(records.size).toBe(2);
+      expect(await service.bulkCreate('user-a', { data: [{
+        ...rawSample,
+        startDate: '2026-11-25T02:00:00.000Z',
+        endDate: '2026-11-25T02:01:00.000Z',
+        sourceSampleId: '00000000-0000-4000-8000-000000000003',
+      }] })).toMatchObject({ createdCount: 1, updatedCount: 0, skippedCount: 0 });
+      expect((await new DashboardService().getDashboard('user-a')).summary.steps).toBe(757);
+
+      expect(await service.bulkCreate('user-b', { data: [dailyAggregate(111)] })).toMatchObject({
+        createdCount: 1, updatedCount: 0, skippedCount: 0,
+      });
+      expect(records.size).toBe(3);
       expect(records.get('user-a:healthkit-daily-steps-2026-11-25')).toMatchObject({ value: 757 });
       expect(records.get('user-b:healthkit-daily-steps-2026-11-25')).toMatchObject({ value: 111 });
 
@@ -272,12 +311,15 @@ describe('V1 backend services', () => {
         expect.objectContaining({ type: 'STEPS', _sum: { value: 757 } }),
       ]);
 
-      expect(await service.bulkCreate('user-a', { data: [rawSample] })).toEqual({ synced: 1 });
-      expect(await service.bulkCreate('user-a', { data: [{ ...rawSample, value: 75 }] })).toEqual({ synced: 0 });
-      expect(records.size).toBe(3);
-      expect(records.get('user-a:healthkit-raw-step-sample')).toMatchObject({ value: 50 });
-      expect(upsert).toHaveBeenCalledTimes(3);
-      expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
+      expect(await service.bulkCreate('user-a', { data: [rawSample, secondRawSample] })).toMatchObject({
+        receivedCount: 2, createdCount: 2, updatedCount: 0, skippedCount: 0, rejectedCount: 0,
+      });
+      expect(await service.bulkCreate('user-a', { data: [{ ...rawSample, value: 100 }] })).toMatchObject({
+        receivedCount: 1, createdCount: 0, updatedCount: 0, skippedCount: 1, rejectedCount: 0,
+      });
+      expect(records.size).toBe(5);
+      expect(records.get('user-a:00000000-0000-4000-8000-000000000001')).toMatchObject({ value: 50 });
+      expect(createBulk).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

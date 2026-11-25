@@ -18,6 +18,7 @@ import { getTimeZoneDayRange } from './dashboard.service';
 import { logger } from '../config/logger';
 import { subDays, format } from 'date-fns';
 import { HealthDataType, SharingScope } from '@prisma/client';
+import { isDailyHealthKitAggregate } from '../repositories/health-data.repository';
 
 // ============================================
 // HEALTH DATA SERVICE - .NET: IHealthDataService / HealthDataService
@@ -26,7 +27,7 @@ import { HealthDataType, SharingScope } from '@prisma/client';
 
 export interface IHealthDataService {
   create(userId: string, data: CreateHealthDataRequest): Promise<HealthDataResponse>;
-  bulkCreate(userId: string, data: BulkHealthDataRequest): Promise<{ synced: number }>;
+  bulkCreate(userId: string, data: BulkHealthDataRequest): Promise<BulkHealthDataSyncResult>;
   getMyData(userId: string, query: QueryHealthData): Promise<{ data: Array<HealthDataResponse | Record<string, unknown>>; pagination: any }>;
   getDailySummary(userId: string): Promise<DailySummary>;
   getPartnerData(userId: string, query: PartnerHealthDataQuery): Promise<{ data: Array<HealthDataResponse | Record<string, unknown>>; pagination: any; partner: any }>;
@@ -34,15 +35,14 @@ export interface IHealthDataService {
   delete(userId: string, healthDataId: string): Promise<{ message: string }>;
 }
 
-function isDailyHealthKitStepsAggregate(record: {
-  type: HealthDataType;
-  sourceName?: string;
-  sourceSampleId?: string;
-}): boolean {
-  return record.type === 'STEPS'
-    && record.sourceName === 'HealthKit daily aggregate'
-    && record.sourceSampleId?.startsWith('healthkit-daily-steps-') === true;
-}
+export type BulkHealthDataSyncResult = {
+  synced: number;
+  receivedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  rejectedCount: number;
+};
 
 export class HealthDataService implements IHealthDataService {
   // Create Single Health Data - .NET: async Task<HealthDataResponse> CreateAsync(string userId, CreateHealthDataRequest data)
@@ -60,7 +60,7 @@ export class HealthDataService implements IHealthDataService {
   }
 
   // Bulk Create (HealthKit Sync) - .NET: async Task<BulkSyncResponse> BulkCreateAsync(string userId, BulkHealthDataRequest data)
-  async bulkCreate(userId: string, data: BulkHealthDataRequest): Promise<{ synced: number }> {
+  async bulkCreate(userId: string, data: BulkHealthDataRequest): Promise<BulkHealthDataSyncResult> {
     const startedAt = new Date();
     const records = data.data.map(d => ({
       userId,
@@ -69,39 +69,11 @@ export class HealthDataService implements IHealthDataService {
       endDate: new Date(d.endDate),
     }));
 
-    let synced: number;
+    let counts: { createdCount: number; updatedCount: number; skippedCount: number };
     try {
-      synced = await healthDataRepository.transaction(async (tx: any) => {
-        const dailyAggregates = records.filter(isDailyHealthKitStepsAggregate);
-        const samples = records.filter((record) => !isDailyHealthKitStepsAggregate(record));
-        const created = await tx.healthData.createMany({
-          data: samples,
-          skipDuplicates: true,
-        });
-
-        await Promise.all(dailyAggregates.map((record) => tx.healthData.upsert({
-          where: {
-            userId_sourceSampleId: {
-              userId,
-              sourceSampleId: record.sourceSampleId,
-            },
-          },
-          create: record,
-          update: {
-            type: record.type,
-            unit: record.unit,
-            value: record.value,
-            startDate: record.startDate,
-            endDate: record.endDate,
-            sourceName: record.sourceName,
-            sourceVersion: record.sourceVersion,
-            deviceId: record.deviceId,
-            metadata: record.metadata,
-            syncedAt: new Date(),
-          },
-        })));
-
-        const syncedCount = created.count + dailyAggregates.length;
+      counts = await healthDataRepository.transaction(async (tx: any) => {
+        const result = await healthDataRepository.createBulk(records, tx);
+        const syncedCount = result.createdCount + result.updatedCount;
         await tx.syncLog.create({
           data: {
             userId,
@@ -111,8 +83,7 @@ export class HealthDataService implements IHealthDataService {
             completedAt: new Date(),
           },
         });
-
-        return syncedCount;
+        return result;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown sync error';
@@ -124,9 +95,16 @@ export class HealthDataService implements IHealthDataService {
       throw error;
     }
 
-    logger.info({ userId, count: synced }, 'Bulk health data sync completed');
+    const synced = counts.createdCount + counts.updatedCount;
+    const result: BulkHealthDataSyncResult = {
+      synced,
+      receivedCount: records.length,
+      ...counts,
+      rejectedCount: 0,
+    };
+    logger.info({ userId, ...result }, 'Bulk health data sync completed');
 
-    return { synced };
+    return result;
   }
 
   // Get My Health Data - .NET: async Task<PagedResponse<HealthDataResponse>> GetMyDataAsync(string userId, QueryHealthData query)

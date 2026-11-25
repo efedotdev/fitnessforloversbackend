@@ -85,7 +85,14 @@ export const healthDataListResponseSchema = successResponseSchema(z.object({
   }),
 }));
 
-export const bulkSyncResponseSchema = successResponseSchema(z.object({ synced: z.number() }));
+export const bulkSyncResponseSchema = successResponseSchema(z.object({
+  synced: z.number(),
+  receivedCount: z.number(),
+  createdCount: z.number(),
+  updatedCount: z.number(),
+  skippedCount: z.number(),
+  rejectedCount: z.number(),
+}));
 export const createHealthDataResponseSchema = successResponseSchema(
   z.object({ healthData: healthDataResponseSchema })
 );
