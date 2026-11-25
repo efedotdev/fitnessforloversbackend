@@ -50,7 +50,9 @@ integrationDescribe('HealthKit daily aggregate bulk sync (PostgreSQL integration
     const date = now.toISOString().slice(0, 10);
     const startDate = new Date(`${date}T00:00:00.000Z`);
     const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
-    const sourceSampleId = `healthkit-daily-steps-${Math.floor(startDate.getTime() / 1000)}`;
+    const aggregateStartDate = new Date(startDate.getTime() - 3 * 60 * 60 * 1000);
+    const aggregateEndDate = new Date(endDate.getTime() - 3 * 60 * 60 * 1000);
+    const sourceSampleId = `healthkit-daily-steps-${Math.floor(aggregateStartDate.getTime() / 1000)}`;
     await prisma.userPreferences.create({ data: { userId: user.id, timezone: 'UTC' } });
     await prisma.userPreferences.create({ data: { userId: partner.id, timezone: 'UTC' } });
     await prisma.pairing.create({
@@ -67,8 +69,8 @@ integrationDescribe('HealthKit daily aggregate bulk sync (PostgreSQL integration
       type: 'STEPS' as const,
       unit: 'COUNT' as const,
       value,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
+      startDate: aggregateStartDate.toISOString(),
+      endDate: aggregateEndDate.toISOString(),
       sourceName: 'HealthKit daily aggregate',
       sourceSampleId,
     });
