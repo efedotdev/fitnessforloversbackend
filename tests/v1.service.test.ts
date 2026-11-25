@@ -160,32 +160,18 @@ describe('V1 backend services', () => {
     } as never));
 
     const service = new HealthDataService();
-    const dailyAggregate = (userIdValue: number) => ({
+    const dailyAggregate = (value: number) => ({
       type: 'STEPS' as const,
       unit: 'COUNT' as const,
-      value: userIdValue,
+      value,
       startDate: '2026-11-25T00:00:00.000Z',
       endDate: '2026-11-26T00:00:00.000Z',
       sourceName: 'HealthKit daily aggregate',
       sourceVersion: '1',
       deviceId: 'watch-1',
-      sourceSampleId: 'healthkit-daily-steps-1795564800',
+      sourceSampleId: 'healthkit-daily-steps-2026-11-25',
       metadata: { aggregation: 'daily' },
     });
-
-    expect(await service.bulkCreate('user-a', { data: [dailyAggregate(1200)] })).toEqual({ synced: 1 });
-    expect(records.size).toBe(1);
-    expect(await service.bulkCreate('user-a', { data: [{
-      ...dailyAggregate(2400),
-      unit: 'COUNT',
-      startDate: '2026-11-25T01:00:00.000Z',
-      endDate: '2026-11-25T23:59:00.000Z',
-      sourceVersion: '2',
-      deviceId: 'watch-2',
-      metadata: { aggregation: 'updated-daily' },
-    }] })).toEqual({ synced: 1 });
-    expect(records.size).toBe(1);
-    expect(await service.bulkCreate('user-b', { data: [dailyAggregate(700)] })).toEqual({ synced: 1 });
 
     const rawSample = {
       type: 'STEPS' as const,
@@ -196,22 +182,6 @@ describe('V1 backend services', () => {
       sourceName: 'HealthKit',
       sourceSampleId: 'healthkit-raw-step-sample',
     };
-    expect(await service.bulkCreate('user-a', { data: [rawSample] })).toEqual({ synced: 1 });
-    expect(await service.bulkCreate('user-a', { data: [{ ...rawSample, value: 75 }] })).toEqual({ synced: 0 });
-
-    expect(records.size).toBe(3);
-    expect(records.get('user-a:healthkit-daily-steps-1795564800')).toMatchObject({
-      value: 2400,
-      sourceVersion: '2',
-      deviceId: 'watch-2',
-      metadata: { aggregation: 'updated-daily' },
-      startDate: new Date('2026-11-25T01:00:00.000Z'),
-      endDate: new Date('2026-11-25T23:59:00.000Z'),
-    });
-    expect(records.get('user-b:healthkit-daily-steps-1795564800')).toMatchObject({ value: 700 });
-    expect(records.get('user-a:healthkit-raw-step-sample')).toMatchObject({ value: 50 });
-    expect(upsert).toHaveBeenCalledTimes(3);
-    expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
 
     vi.spyOn(userRepository, 'findWithPreferences').mockResolvedValue({
       id: 'user-a',
@@ -261,14 +231,53 @@ describe('V1 backend services', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-25T12:00:00.000Z'));
     try {
-      const dashboard = await new DashboardService().getDashboard('user-a');
-      expect(dashboard.summary.steps).toBe(2400);
-      expect(dashboard.partner?.summary.steps).toBe(700);
+      expect(await service.bulkCreate('user-a', { data: [dailyAggregate(299)] })).toEqual({ synced: 1 });
+      expect(records.size).toBe(1);
 
+      const dashboard = await new DashboardService().getDashboard('user-a');
+      expect(dashboard.summary.steps).toBe(299);
+
+      expect(await service.bulkCreate('user-a', { data: [{
+        ...dailyAggregate(757),
+        startDate: '2026-11-25T01:00:00.000Z',
+        endDate: '2026-11-25T23:59:00.000Z',
+        sourceVersion: '2',
+        deviceId: 'watch-2',
+        metadata: { aggregation: 'updated-daily' },
+      }] })).toEqual({ synced: 1 });
+      expect(records.size).toBe(1);
+      expect(records.get('user-a:healthkit-daily-steps-2026-11-25')).toMatchObject({
+        value: 757,
+        unit: 'COUNT',
+        startDate: new Date('2026-11-25T01:00:00.000Z'),
+        endDate: new Date('2026-11-25T23:59:00.000Z'),
+        sourceVersion: '2',
+        deviceId: 'watch-2',
+        metadata: { aggregation: 'updated-daily' },
+      });
+
+      const updatedDashboard = await new DashboardService().getDashboard('user-a');
+      expect(updatedDashboard.summary.steps).toBe(757);
+
+      expect(await service.bulkCreate('user-b', { data: [dailyAggregate(111)] })).toEqual({ synced: 1 });
+      expect(records.size).toBe(2);
+      expect(records.get('user-a:healthkit-daily-steps-2026-11-25')).toMatchObject({ value: 757 });
+      expect(records.get('user-b:healthkit-daily-steps-2026-11-25')).toMatchObject({ value: 111 });
+
+      const dashboardWithPartner = await new DashboardService().getDashboard('user-a');
+      expect(dashboardWithPartner.summary.steps).toBe(757);
+      expect(dashboardWithPartner.partner?.summary.steps).toBe(111);
       const partnerSummary = await service.getPartnerSummary('user-b', 'user-a');
       expect(partnerSummary.summary.metrics).toEqual([
-        expect.objectContaining({ type: 'STEPS', _sum: { value: 2400 } }),
+        expect.objectContaining({ type: 'STEPS', _sum: { value: 757 } }),
       ]);
+
+      expect(await service.bulkCreate('user-a', { data: [rawSample] })).toEqual({ synced: 1 });
+      expect(await service.bulkCreate('user-a', { data: [{ ...rawSample, value: 75 }] })).toEqual({ synced: 0 });
+      expect(records.size).toBe(3);
+      expect(records.get('user-a:healthkit-raw-step-sample')).toMatchObject({ value: 50 });
+      expect(upsert).toHaveBeenCalledTimes(3);
+      expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
     } finally {
       vi.useRealTimers();
     }
