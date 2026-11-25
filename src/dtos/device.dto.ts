@@ -8,6 +8,10 @@ import { successResponseSchema, paginationResponseSchema } from './common';
 // Enums
 export const devicePlatformEnum = z.enum(['IOS', 'WATCHOS', 'ANDROID', 'WEB']);
 
+export const deviceIdParamsSchema = z.object({
+  deviceId: z.string().min(1),
+});
+
 // Requests
 export const registerDeviceRequestSchema = z.object({
   deviceId: z.string().min(1),

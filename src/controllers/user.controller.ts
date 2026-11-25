@@ -1,4 +1,5 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId } from './base.controller';
 import { userService } from '../services';
 import {
@@ -8,7 +9,10 @@ import {
   preferencesResponseSchema,
   deleteAccountResponseSchema,
   publicUserResponseSchema,
+  updatePreferencesRequestSchema,
+  updateProfileRequestSchema,
 } from '../dtos';
+import { idParamSchema } from '../dtos/common';
 
 // ============================================
 // USER CONTROLLER - .NET: UserController
@@ -68,7 +72,7 @@ export class UserController extends BaseController {
 }
 
 // Register routes
-export function registerUserRoutes(app: FastifyInstance) {
+export function registerUserRoutes(app: ZodFastifyInstance) {
   const controller = new UserController();
 
   app.get('/users/me', {
@@ -82,14 +86,8 @@ export function registerUserRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Users'],
       summary: 'Update the authenticated user profile',
-      body: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', minLength: 1, maxLength: 100 },
-          avatarUrl: { type: 'string', format: 'uri' },
-        },
-        response: { 200: profileResponseSchema },
-      },
+      body: updateProfileRequestSchema,
+      response: { 200: profileResponseSchema },
     },
   }, controller.updateProfile.bind(controller));
 
@@ -104,19 +102,8 @@ export function registerUserRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Users'],
       summary: 'Update user preferences and sharing scope',
-      body: {
-        type: 'object',
-        properties: {
-          sharingScope: { type: 'string', enum: ['ALL', 'ACTIVITY_ONLY', 'HEART_ONLY', 'SLEEP_ONLY', 'WORKOUT_ONLY', 'CUSTOM'] },
-          customDataTypes: { type: 'array', items: { type: 'string' } },
-          notifyOnNewData: { type: 'boolean' },
-          notifyOnPartnerActive: { type: 'boolean' },
-          weeklyDigest: { type: 'boolean' },
-          timezone: { type: 'string' },
-          language: { type: 'string' },
-        },
-        response: { 200: preferencesResponseSchema },
-      },
+      body: updatePreferencesRequestSchema,
+      response: { 200: preferencesResponseSchema },
     },
   }, controller.updatePreferences.bind(controller));
 
@@ -131,11 +118,7 @@ export function registerUserRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Users'],
       summary: 'Get a public user profile',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'cuid' } },
-      },
+      params: idParamSchema,
       response: { 200: publicUserResponseSchema },
     },
   }, controller.getPublicProfile.bind(controller));

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { successResponseSchema, paginationQuerySchema, paginationResponseSchema } from './common';
+import { successResponseSchema, paginationQuerySchema, paginationResponseSchema, idParamSchema } from './common';
 
 // ============================================
 // NOTIFICATION DTOs - .NET: NotificationController DTOs
@@ -9,6 +9,8 @@ import { successResponseSchema, paginationQuerySchema, paginationResponseSchema 
 export const queryNotificationsSchema = paginationQuerySchema.extend({
   unreadOnly: z.coerce.boolean().optional(),
 });
+
+export const notificationIdParamsSchema = idParamSchema;
 
 // Responses
 export const notificationResponseSchema = z.object({

@@ -1,4 +1,5 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId, getUserTokenVersion } from './base.controller';
 import { authService } from '../services';
 import {
@@ -7,8 +8,11 @@ import {
   VerifyAppleRequest,
   RegisterRequest,
   LoginRequest,
+  appleSignInRequestSchema,
   registerRequestSchema,
   loginRequestSchema,
+  refreshTokenRequestSchema,
+  verifyAppleRequestSchema,
   emailAuthResponseSchema,
   appleSignInResponseSchema,
   refreshResponseSchema,
@@ -77,7 +81,7 @@ export class AuthController extends BaseController {
 }
 
 // Register routes - .NET: MapControllerRoute / MapControllers
-export function registerAuthRoutes(app: FastifyInstance) {
+export function registerAuthRoutes(app: ZodFastifyInstance) {
   const controller = new AuthController();
 
   // Public routes (no auth required)
@@ -106,22 +110,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
       tags: ['Authentication'],
       summary: 'Sign in with Apple',
       security: [],
-      body: {
-        type: 'object',
-        required: ['identityToken'],
-        properties: {
-          identityToken: { type: 'string' },
-          authorizationCode: { type: 'string' },
-          fullName: {
-            type: 'object',
-            properties: {
-              givenName: { type: 'string' },
-              familyName: { type: 'string' },
-            },
-          },
-          email: { type: 'string', format: 'email' },
-        },
-      },
+      body: appleSignInRequestSchema,
       response: { 201: appleSignInResponseSchema },
     },
   }, controller.appleSignIn.bind(controller));
@@ -131,11 +120,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
       tags: ['Authentication'],
       summary: 'Refresh the access and refresh tokens',
       security: [],
-      body: {
-        type: 'object',
-        required: ['refreshToken'],
-        properties: { refreshToken: { type: 'string' } },
-      },
+      body: refreshTokenRequestSchema,
       response: { 200: refreshResponseSchema },
     },
   }, controller.refreshToken.bind(controller));
@@ -144,11 +129,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Authentication'],
       security: [],
-      body: {
-        type: 'object',
-        required: ['identityToken'],
-        properties: { identityToken: { type: 'string' } },
-      },
+      body: verifyAppleRequestSchema,
       response: { 200: verifyAppleResponseSchema },
     },
   }, controller.verifyApple.bind(controller));

@@ -1,7 +1,16 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId } from './base.controller';
 import { notificationService } from '../services';
-import { QueryNotifications } from '../dtos';
+import {
+  QueryNotifications,
+  markAllReadResponseSchema,
+  markReadResponseSchema,
+  notificationIdParamsSchema,
+  notificationListResponseSchema,
+  queryNotificationsSchema,
+  unreadCountResponseSchema,
+} from '../dtos';
 
 // ============================================
 // NOTIFICATION CONTROLLER - .NET: NotificationController
@@ -45,27 +54,34 @@ export class NotificationController extends BaseController {
 }
 
 // Register routes
-export function registerNotificationRoutes(app: FastifyInstance) {
+export function registerNotificationRoutes(app: ZodFastifyInstance) {
   const controller = new NotificationController();
 
   app.get('/notifications', {
     schema: {
-      querystring: {
-        type: 'object',
-        properties: {
-          page: { type: 'integer', minimum: 1, default: 1 },
-          limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-          unreadOnly: { type: 'boolean' },
-        },
-      },
+      tags: ['Notifications'],
+      querystring: queryNotificationsSchema,
+      response: { 200: notificationListResponseSchema },
     },
   }, controller.getMyNotifications.bind(controller));
 
-  app.get('/notifications/unread-count', controller.getUnreadCount.bind(controller));
+  app.get('/notifications/unread-count', {
+    schema: {
+      tags: ['Notifications'],
+      response: { 200: unreadCountResponseSchema },
+    },
+  }, controller.getUnreadCount.bind(controller));
   app.patch('/notifications/:id/read', {
     schema: {
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'cuid' } } },
+      tags: ['Notifications'],
+      params: notificationIdParamsSchema,
+      response: { 200: markReadResponseSchema },
     },
   }, controller.markAsRead.bind(controller));
-  app.post('/notifications/read-all', controller.markAllAsRead.bind(controller));
+  app.post('/notifications/read-all', {
+    schema: {
+      tags: ['Notifications'],
+      response: { 200: markAllReadResponseSchema },
+    },
+  }, controller.markAllAsRead.bind(controller));
 }

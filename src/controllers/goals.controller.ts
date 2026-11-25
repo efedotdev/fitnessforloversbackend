@@ -1,4 +1,5 @@
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { z } from 'zod';
 import { BaseController, getUserId } from './base.controller';
 import { goalService } from '../services';
@@ -60,7 +61,7 @@ export class GoalsController extends BaseController {
   }
 }
 
-export function registerGoalsRoutes(app: FastifyInstance) {
+export function registerGoalsRoutes(app: ZodFastifyInstance) {
   const controller = new GoalsController();
 
   app.post('/goals', {

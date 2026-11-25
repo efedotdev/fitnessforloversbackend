@@ -45,6 +45,14 @@ export const partnerHealthDataQuerySchema = z.object({
   aggregate: aggregateEnum.optional(),
 });
 
+export const partnerHealthDataRequestQuerySchema = partnerHealthDataQuerySchema.omit({
+  partnerId: true,
+});
+
+export const partnerIdParamsSchema = z.object({
+  partnerId: z.string().cuid(),
+});
+
 // Responses
 export const healthDataResponseSchema = z.object({
   id: z.string(),

@@ -1,17 +1,22 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId } from './base.controller';
 import { pairingService } from '../services';
 import {
   CreatePairingRequest,
   RespondPairingRequest,
   UpdatePairingRequest,
+  createPairingRequestSchema,
   createPairingResponseSchema,
   listPairingsResponseSchema,
   getPairingResponseSchema,
   respondPairingResponseSchema,
+  respondPairingRequestSchema,
+  updatePairingRequestSchema,
   updatePairingResponseSchema,
   deletePairingResponseSchema,
 } from '../dtos';
+import { idParamSchema } from '../dtos/common';
 
 // ============================================
 // PAIRING CONTROLLER - .NET: PairingController
@@ -92,29 +97,15 @@ export class PairingController extends BaseController {
 }
 
 // Register routes
-export function registerPairingRoutes(app: FastifyInstance) {
+export function registerPairingRoutes(app: ZodFastifyInstance) {
   const controller = new PairingController();
 
   app.post('/pairings', {
     schema: {
       tags: ['Pairings'],
       summary: 'Send a pairing invitation by email',
-      body: {
-        type: 'object',
-        required: ['inviteeEmail'],
-        properties: {
-          inviteeEmail: { type: 'string', format: 'email' },
-          sharingScope: { type: 'string', enum: ['ALL', 'ACTIVITY_ONLY', 'HEART_ONLY', 'SLEEP_ONLY', 'WORKOUT_ONLY', 'CUSTOM'], default: 'ACTIVITY_ONLY' },
-          customTypes: {
-            type: 'array',
-            items: {
-              type: 'string',
-              enum: ['STEPS', 'HEART_RATE', 'ACTIVE_ENERGY', 'BASAL_ENERGY', 'DISTANCE_WALKING_RUNNING', 'FLIGHTS_CLIMBED', 'EXERCISE_MINUTES', 'STAND_HOURS', 'SLEEP_ANALYSIS', 'WORKOUT', 'BODY_MASS', 'BODY_FAT_PERCENTAGE', 'HEART_RATE_VARIABILITY', 'RESTING_HEART_RATE', 'VO2_MAX', 'BLOOD_PRESSURE_SYSTOLIC', 'BLOOD_PRESSURE_DIASTOLIC', 'BLOOD_GLUCOSE', 'OXYGEN_SATURATION', 'RESPIRATORY_RATE', 'BODY_TEMPERATURE', 'MENSTRUAL_FLOW', 'CUSTOM'],
-            },
-          },
-          response: { 201: createPairingResponseSchema },
-        },
-      },
+      body: createPairingRequestSchema,
+      response: { 201: createPairingResponseSchema },
     },
   }, controller.createInvitation.bind(controller));
 
@@ -143,11 +134,7 @@ export function registerPairingRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Pairings'],
       summary: 'Get a pairing by ID',
-      params: {
-        type: 'object',
-        required: ['id'],
-        properties: { id: { type: 'string', format: 'cuid' } },
-      },
+      params: idParamSchema,
       response: { 200: getPairingResponseSchema },
     },
   }, controller.getPairing.bind(controller));
@@ -156,8 +143,8 @@ export function registerPairingRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Pairings'],
       summary: 'Accept or reject a received invitation',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'cuid' } } },
-      body: { type: 'object', required: ['action'], properties: { action: { type: 'string', enum: ['ACCEPT', 'REJECT'] } } },
+      params: idParamSchema,
+      body: respondPairingRequestSchema,
       response: { 200: respondPairingResponseSchema },
     },
   }, controller.respondToInvitation.bind(controller));
@@ -166,21 +153,9 @@ export function registerPairingRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Pairings'],
       summary: 'Update sharing scope for an accepted pairing',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'cuid' } } },
-      body: {
-        type: 'object',
-        properties: {
-          sharingScope: { type: 'string', enum: ['ALL', 'ACTIVITY_ONLY', 'HEART_ONLY', 'SLEEP_ONLY', 'WORKOUT_ONLY', 'CUSTOM'] },
-          customTypes: {
-            type: 'array',
-            items: {
-              type: 'string',
-              enum: ['STEPS', 'HEART_RATE', 'ACTIVE_ENERGY', 'BASAL_ENERGY', 'DISTANCE_WALKING_RUNNING', 'FLIGHTS_CLIMBED', 'EXERCISE_MINUTES', 'STAND_HOURS', 'SLEEP_ANALYSIS', 'WORKOUT', 'BODY_MASS', 'BODY_FAT_PERCENTAGE', 'HEART_RATE_VARIABILITY', 'RESTING_HEART_RATE', 'VO2_MAX', 'BLOOD_PRESSURE_SYSTOLIC', 'BLOOD_PRESSURE_DIASTOLIC', 'BLOOD_GLUCOSE', 'OXYGEN_SATURATION', 'RESPIRATORY_RATE', 'BODY_TEMPERATURE', 'MENSTRUAL_FLOW', 'CUSTOM'],
-            },
-            response: { 200: updatePairingResponseSchema },
-          },
-        },
-      },
+      params: idParamSchema,
+      body: updatePairingRequestSchema,
+      response: { 200: updatePairingResponseSchema },
     },
   }, controller.updatePairing.bind(controller));
 
@@ -188,7 +163,7 @@ export function registerPairingRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Pairings'],
       summary: 'Unpair or block an accepted partner',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'cuid' } } },
+      params: idParamSchema,
       response: { 200: deletePairingResponseSchema },
     },
   }, controller.removePairing.bind(controller));
