@@ -15,15 +15,35 @@ const dailyAggregateTypes: Record<string, HealthDataType> = {
   distance: 'DISTANCE_WALKING_RUNNING',
 };
 
+const earliestDailyAggregateTimestamp = Date.UTC(2000, 0, 1) / 1000;
+const latestDailyAggregateTimestamp = Date.UTC(2100, 0, 1) / 1000;
+
 function getDailyAggregateDate(record: {
   type: HealthDataType;
   sourceSampleId?: string | null;
 }): string | null {
-  const match = record.sourceSampleId?.match(/^healthkit-daily-(steps|active-energy|distance)-(\d{4}-\d{2}-\d{2})$/);
-  if (!match?.[1] || !match[2] || dailyAggregateTypes[match[1]] !== record.type) return null;
-  const parsedDate = new Date(`${match[2]}T00:00:00.000Z`);
-  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== match[2]) return null;
-  return match[2];
+  const match = record.sourceSampleId?.match(
+    /^healthkit-daily-(steps|active-energy|distance)-(?:(\d{4}-\d{2}-\d{2})|(\d+))$/
+  );
+  if (!match?.[1] || dailyAggregateTypes[match[1]] !== record.type) return null;
+
+  const date = match[2];
+  if (date) {
+    const parsedDate = new Date(`${date}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return null;
+    return date;
+  }
+
+  const timestamp = Number(match[3]);
+  if (
+    !Number.isSafeInteger(timestamp)
+    || timestamp < earliestDailyAggregateTimestamp
+    || timestamp >= latestDailyAggregateTimestamp
+  ) return null;
+
+  const parsedDate = new Date(timestamp * 1000);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+  return parsedDate.toISOString().slice(0, 10);
 }
 
 export function isDailyHealthKitAggregate(record: {

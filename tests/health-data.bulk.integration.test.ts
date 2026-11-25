@@ -50,7 +50,7 @@ integrationDescribe('HealthKit daily aggregate bulk sync (PostgreSQL integration
     const date = now.toISOString().slice(0, 10);
     const startDate = new Date(`${date}T00:00:00.000Z`);
     const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
-    const sourceSampleId = `healthkit-daily-steps-${date}`;
+    const sourceSampleId = `healthkit-daily-steps-${Math.floor(startDate.getTime() / 1000)}`;
     await prisma.userPreferences.create({ data: { userId: user.id, timezone: 'UTC' } });
     await prisma.userPreferences.create({ data: { userId: partner.id, timezone: 'UTC' } });
     await prisma.pairing.create({
@@ -81,7 +81,7 @@ integrationDescribe('HealthKit daily aggregate bulk sync (PostgreSQL integration
       where: { userId_sourceSampleId: { userId: user.id, sourceSampleId } },
     })).resolves.toMatchObject({ value: 299 });
 
-    const updated = await bulkCreate(user.id, { data: [dailyRecord(757)] });
+    const updated = await bulkCreate(user.id, { data: [dailyRecord(1103)] });
     expect(updated).toMatchObject({
       receivedCount: 1, createdCount: 0, updatedCount: 1, skippedCount: 0, rejectedCount: 0,
     });
@@ -89,13 +89,13 @@ integrationDescribe('HealthKit daily aggregate bulk sync (PostgreSQL integration
       .resolves.toHaveLength(1);
     await expect(prisma.healthData.findUnique({
       where: { userId_sourceSampleId: { userId: user.id, sourceSampleId } },
-    })).resolves.toMatchObject({ value: 757 });
+    })).resolves.toMatchObject({ value: 1103 });
     await expect(prisma.syncLog.findFirst({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
     })).resolves.toMatchObject({ recordsCount: 1 });
 
-    const repeated = await bulkCreate(user.id, { data: [dailyRecord(757)] });
+    const repeated = await bulkCreate(user.id, { data: [dailyRecord(1103)] });
     expect(repeated).toMatchObject({ createdCount: 0, updatedCount: 1, skippedCount: 0 });
     await expect(prisma.healthData.count({ where: { userId: user.id } })).resolves.toBe(1);
     const rawSamples = [
@@ -131,12 +131,12 @@ integrationDescribe('HealthKit daily aggregate bulk sync (PostgreSQL integration
       },
     })).resolves.toMatchObject({ value: 30 });
     await expect(getDashboard(user.id)).resolves.toMatchObject({
-      summary: { steps: 757 },
+      summary: { steps: 1103 },
       partner: { summary: { steps: 111 } },
     });
     await expect(getPartnerSummary(partner.id, user.id)).resolves.toMatchObject({
       summary: {
-        metrics: [expect.objectContaining({ type: 'STEPS', _sum: { value: 757 } })],
+        metrics: [expect.objectContaining({ type: 'STEPS', _sum: { value: 1103 } })],
       },
     });
   });
