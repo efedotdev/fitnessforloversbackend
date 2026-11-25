@@ -39,11 +39,32 @@ describe('OpenAPI contract', () => {
     const pairingProperties = contract.paths['/pairings'].post.requestBody.content['application/json'].schema.properties;
     expect(pairingProperties).toHaveProperty('customTypes');
     expect(pairingProperties).not.toHaveProperty('customDataTypes');
+    expect(pairingProperties).not.toHaveProperty('response');
+    expect(contract.paths['/pairings'].post.responses['201'].content['application/json'].schema).toBeDefined();
     const healthSampleProperties = contract.paths['/health-data/bulk'].post.requestBody
       .content['application/json'].schema.properties.data.items.properties;
     expect(healthSampleProperties.sourceSampleId).toMatchObject({ type: 'string' });
     const goalResponse = contract.paths['/goals'].post.responses['201'].content['application/json'].schema;
     expect(JSON.stringify(goalResponse)).toContain('progressPercentage');
+    expect(contract.paths['/auth/register'].post.security).toEqual([]);
+    expect(contract.paths['/pairings'].post.security).toBeUndefined();
+    expect(JSON.stringify(contract)).not.toContain('passwordHash');
+
+    for (const path of Object.values(contract.paths)) {
+      for (const operation of Object.values(path)) {
+        if (!operation || typeof operation !== 'object') continue;
+        const requestBody = operation.requestBody as { content?: Record<string, { schema?: unknown }> } | undefined;
+        const requestSchema = requestBody?.content?.['application/json']?.schema;
+        if (requestSchema && typeof requestSchema === 'object') {
+          expect(requestSchema).not.toHaveProperty('response');
+        }
+        const responses = operation.responses as Record<string, { content?: Record<string, { schema?: unknown }> }> | undefined;
+        for (const response of Object.values(responses ?? {})) {
+          const schema = response.content?.['application/json']?.schema;
+          if (schema) expect(typeof schema).toBe('object');
+        }
+      }
+    }
   });
 
   it('rejects invalid registration input before calling the auth service', async () => {

@@ -1,4 +1,5 @@
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { FastifyReply, FastifyRequest } from 'fastify';
+import { ZodFastifyInstance } from '../types/fastify';
 import { BaseController, getUserId } from './base.controller';
 import { dashboardService } from '../services';
 import { dashboardResponseSchema } from '../dtos';
@@ -10,7 +11,7 @@ export class DashboardController extends BaseController {
   }
 }
 
-export function registerDashboardRoutes(app: FastifyInstance) {
+export function registerDashboardRoutes(app: ZodFastifyInstance) {
   const controller = new DashboardController();
   app.get('/dashboard', {
     schema: {
