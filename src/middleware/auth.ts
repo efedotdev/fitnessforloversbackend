@@ -16,6 +16,7 @@ const PUBLIC_PATHS = [
   '/auth/apple',
   '/auth/refresh',
   '/auth/verify-apple',
+  '/auth/dev-reset-password',
   '/docs',
   '/documentation',
 ];

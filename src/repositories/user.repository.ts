@@ -21,6 +21,7 @@ export interface IUserRepository extends BaseRepository<
     pairingsAsUser2: Pairing[]
   }) | null>;
   updateLastLogin(id: string): Promise<User>;
+  updatePasswordAndIncrementTokenVersion(id: string, passwordHash: string): Promise<User>;
   createWithPreferences(data: Prisma.UserCreateInput): Promise<User>;
   incrementTokenVersion(id: string, expectedVersion: number): Promise<number>;
 }
@@ -63,6 +64,16 @@ export class UserRepository extends BaseRepository<
     return this.model.update({
       where: { id },
       data: { lastLoginAt: new Date() },
+    });
+  }
+
+  async updatePasswordAndIncrementTokenVersion(id: string, passwordHash: string): Promise<User> {
+    return this.model.update({
+      where: { id },
+      data: {
+        passwordHash,
+        tokenVersion: { increment: 1 },
+      },
     });
   }
 

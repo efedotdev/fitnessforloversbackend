@@ -31,6 +31,15 @@ export const registerRequestSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
+export const devResetPasswordRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  newPassword: z.string().min(8).max(128),
+  confirmPassword: z.string().min(8).max(128),
+}).refine((request) => request.newPassword === request.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
 export const loginRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1).max(128),
@@ -88,12 +97,14 @@ export const verifyAppleResponseSchema = successResponseSchema(
 );
 export const meResponseSchema = successResponseSchema(z.object({ user: userResponseSchema }));
 export const logoutResponseSchema = successResponseSchema(z.object({ message: z.string() }));
+export const devResetPasswordResponseSchema = successResponseSchema(z.object({ message: z.string() }));
 
 // Types
 export type AppleSignInRequest = z.infer<typeof appleSignInRequestSchema>;
 export type RefreshTokenRequest = z.infer<typeof refreshTokenRequestSchema>;
 export type VerifyAppleRequest = z.infer<typeof verifyAppleRequestSchema>;
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
+export type DevResetPasswordRequest = z.infer<typeof devResetPasswordRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 
 export type UserResponse = z.infer<typeof userResponseSchema>;

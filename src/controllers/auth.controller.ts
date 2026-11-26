@@ -8,8 +8,10 @@ import {
   VerifyAppleRequest,
   RegisterRequest,
   LoginRequest,
+  DevResetPasswordRequest,
   appleSignInRequestSchema,
   registerRequestSchema,
+  devResetPasswordRequestSchema,
   loginRequestSchema,
   refreshTokenRequestSchema,
   verifyAppleRequestSchema,
@@ -19,7 +21,9 @@ import {
   verifyAppleResponseSchema,
   meResponseSchema,
   logoutResponseSchema,
+  devResetPasswordResponseSchema,
 } from '../dtos';
+import { config } from '../config';
 
 // ============================================
 // AUTH CONTROLLER - .NET: AuthController
@@ -36,6 +40,12 @@ export class AuthController extends BaseController {
   async login(request: FastifyRequest, reply: FastifyReply) {
     const body = request.body as LoginRequest;
     const result = await authService.login(body, request.server);
+    return this.ok(reply, result);
+  }
+
+  async devResetPassword(request: FastifyRequest, reply: FastifyReply) {
+    const body = request.body as DevResetPasswordRequest;
+    const result = await authService.devResetPassword(body);
     return this.ok(reply, result);
   }
 
@@ -104,6 +114,18 @@ export function registerAuthRoutes(app: ZodFastifyInstance) {
       security: [],
     },
   }, controller.login.bind(controller));
+
+  if (config.NODE_ENV === 'development') {
+    app.post('/auth/dev-reset-password', {
+      schema: {
+        tags: ['Authentication'],
+        summary: 'Reset a user password in development',
+        body: devResetPasswordRequestSchema,
+        response: { 200: devResetPasswordResponseSchema },
+        security: [],
+      },
+    }, controller.devResetPassword.bind(controller));
+  }
 
   app.post('/auth/apple', {
     schema: {
