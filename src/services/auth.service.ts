@@ -8,6 +8,7 @@ import {
   RefreshTokenRequest,
   VerifyAppleRequest,
   RegisterRequest,
+  DevResetPasswordRequest,
   LoginRequest,
   EmailAuthResponse,
   AuthResponse,
@@ -20,7 +21,8 @@ import {
   UnauthorizedError,
   BadRequestError,
   ConflictError,
-  InternalServerError
+  InternalServerError,
+  NotFoundError,
 } from '../exceptions';
 import { config } from '../config';
 import { logger } from '../config/logger';
@@ -50,6 +52,7 @@ export type AppleSignInResponseData = z.infer<typeof appleSignInResponseSchema> 
 
 export interface IAuthService {
   register(request: RegisterRequest, app: FastifyInstance): Promise<EmailAuthResponse>;
+  devResetPassword(request: DevResetPasswordRequest): Promise<{ message: string }>;
   login(request: LoginRequest, app: FastifyInstance): Promise<EmailAuthResponse>;
   appleSignIn(request: AppleSignInRequest, app: FastifyInstance): Promise<AppleSignInResponseData>;
   refreshToken(request: RefreshTokenRequest, app: FastifyInstance): Promise<TokensResponse>;
@@ -85,6 +88,17 @@ export class AuthService implements IAuthService {
       },
       tokens,
     };
+  }
+
+  async devResetPassword(request: DevResetPasswordRequest): Promise<{ message: string }> {
+    const user = await userRepository.findByEmail(request.email.trim().toLowerCase());
+    if (!user) {
+      throw new NotFoundError('User');
+    }
+
+    const passwordHash = await bcrypt.hash(request.newPassword, 12);
+    await userRepository.updatePasswordAndIncrementTokenVersion(user.id, passwordHash);
+    return { message: 'Password reset successfully' };
   }
 
   async login(request: LoginRequest, app: FastifyInstance): Promise<EmailAuthResponse> {
